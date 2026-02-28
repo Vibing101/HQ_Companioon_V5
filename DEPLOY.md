@@ -40,76 +40,40 @@ Browser ──HTTPS──► Cloudflare Edge         (Universal SSL — free, au
 
 ---
 
-## Part 1 — Prepare the Server Code
+## Part 1 — Verify the Build Locally
 
-### 1.1 Serve the client from Express
+> All code changes required for production (HTTPS support, static file serving, production env URL) are **already committed to the repository**. This part just confirms a clean build before you touch EC2.
 
-Add this block to `server/src/index.ts` **after** the REST routes and **before** the Socket.io section:
-
-```ts
-import path from "path";
-
-// Serve React client build
-const CLIENT_DIST = path.resolve(__dirname, "../../client/dist");
-app.use(express.static(CLIENT_DIST));
-app.get("*", (_req, res) => {
-  res.sendFile(path.join(CLIENT_DIST, "index.html"));
-});
-```
-
-### 1.2 Add HTTPS support to the server
-
-The server must serve over HTTPS in production so the Cloudflare Tunnel can use `Full (Strict)` SSL mode. The change falls back to plain HTTP when no cert paths are set (local dev is unchanged).
-
-Replace the existing `createServer` import and call in `server/src/index.ts`:
-
-**Before:**
-```ts
-import { createServer } from "http";
-// ...
-const httpServer = createServer(app);
-```
-
-**After:**
-```ts
-import { createServer as createHttpServer } from "http";
-import { createServer as createHttpsServer } from "https";
-import { readFileSync } from "fs";
-
-// ...
-
-const TLS_CERT = process.env.TLS_CERT_PATH;
-const TLS_KEY  = process.env.TLS_KEY_PATH;
-
-const httpServer =
-  TLS_CERT && TLS_KEY
-    ? createHttpsServer(
-        { cert: readFileSync(TLS_CERT), key: readFileSync(TLS_KEY) },
-        app
-      )
-    : createHttpServer(app);
-```
-
-> When `TLS_CERT_PATH` and `TLS_KEY_PATH` are absent (local dev), the server starts as plain HTTP on port 4000 — no change to the dev workflow.
-
-### 1.3 Set the client's API URL at build time
-
-Create `client/.env.production`:
-
-```
-VITE_SERVER_URL=https://HQv2.savvy-des.com
-```
-
-Confirm that `client/src/socket.ts` reads from `import.meta.env.VITE_SERVER_URL`.
-
-### 1.4 Build everything locally and confirm it works
+### 1.1 Install dependencies and build
 
 ```bash
 npm install
 npm run build        # builds shared → server → client
 ```
 
-Verify `client/dist/` is populated.
+Expected output:
+- `shared/dist/types.js` and `shared/dist/types.d.ts` created
+- `server/dist/index.js` created
+- `client/dist/index.html` + assets created
+
+### 1.2 Smoke-test locally (optional but recommended)
+
+Create a local `server/.env` from the example:
+
+```bash
+cp server/.env.example server/.env
+```
+
+Start the built server:
+
+```bash
+node server/dist/index.js
+```
+
+Open `http://localhost:4000` — the React app should load (served as static files by Express).
+Hit `http://localhost:4000/health` — should return `{"status":"ok"}`.
+
+Stop the server before proceeding.
 
 ---
 
@@ -415,6 +379,7 @@ The browser-facing Universal SSL certificate is managed automatically by Cloudfl
 - **Socket.io + Cloudflare Tunnel**: WebSocket connections work natively through Cloudflare Tunnels. No extra configuration is needed.
 - **CORS**: `CLIENT_URL` in `server/.env` must be `https://HQv2.savvy-des.com` exactly (no trailing slash). The server uses this for both Express CORS and Socket.io CORS.
 - **Origin CA is not a public CA**: The Cloudflare Origin CA certificate is only trusted by Cloudflare's edge. Browsers hitting the EC2 IP directly would see an untrusted cert — but that path is blocked by the security group anyway.
-- **Local dev**: Omit `TLS_CERT_PATH` / `TLS_KEY_PATH` from your local `.env` and the server falls back to plain HTTP on port 4000, exactly as before.
+- **Local dev**: Omit `TLS_CERT_PATH` / `TLS_KEY_PATH` from your local `.env` and the server falls back to plain HTTP on port 4000. Run `npm run dev` (not `npm run build` + `node`) for development — it pre-builds `@hq/shared` then starts both servers in watch mode.
+- **Editing shared/src/types.ts during development**: `npm run dev` builds shared once at startup. If you change `types.ts` mid-session, run `npm run build --workspace=shared` in a separate terminal to regenerate `shared/dist/` before the server picks it up.
 - **MongoDB Atlas**: Add the EC2's Elastic IP to the Atlas IP allowlist.
-- **Instance cost**: A `t3.small` runs ~$17/month on-demand. If budget is tight, build locally and rsync only the `dist/` folders to a `t3.micro` to avoid the RAM pressure of the npm build step.
+- **Instance cost**: A `t3.small` runs ~$17/month on-demand. If budget is tight, build locally (`npm run build`) and rsync only the `dist/` folders to a `t3.micro` — this avoids the RAM pressure of running `tsc` on a 1 GB instance.

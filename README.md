@@ -1,5 +1,68 @@
-# HeroQuest Companion App  
+# HeroQuest Companion App
 _In-Person Campaign & Stat Tracker (Base Game + Rise of the Dread Moon)_
+
+---
+
+## Quick Start (Developers)
+
+### Prerequisites
+- Node.js 20 LTS
+- MongoDB running locally on `mongodb://localhost:27017`
+
+### Install & Run (Development)
+
+```bash
+npm install          # installs all workspaces (shared, server, client)
+npm run dev          # builds shared, then starts server (port 4000) + client (port 5173)
+```
+
+### Build for Production
+
+```bash
+npm run build        # shared → server → client, outputs to server/dist/ and client/dist/
+```
+
+### Environment Files
+
+Copy and edit before running:
+
+```bash
+cp server/.env.example server/.env
+```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `4000` | Express listen port |
+| `MONGODB_URI` | `mongodb://localhost:27017/heroquest` | MongoDB connection |
+| `CLIENT_URL` | `http://localhost:5173` | CORS allowed origin |
+| `TLS_CERT_PATH` | _(unset)_ | Path to TLS cert — omit for local HTTP dev |
+| `TLS_KEY_PATH` | _(unset)_ | Path to TLS key — omit for local HTTP dev |
+
+### Project Structure
+
+```
+HQ_Companioon_V5/
+├── shared/          # @hq/shared — TypeScript types + constants (Pack rules, quests, hero stats)
+│   └── src/types.ts
+├── server/          # Express + Socket.io API (port 4000)
+│   └── src/
+│       ├── index.ts          # Entry point (HTTPS/HTTP, static serving, Socket.io)
+│       ├── db.ts             # Mongoose connection
+│       ├── routes/           # campaigns, sessions, heroes
+│       ├── socket/handlers.ts
+│       └── models/           # Mongoose schemas
+└── client/          # Vite + React 18 SPA (port 5173 in dev)
+    └── src/
+        ├── App.tsx           # Routes: / /gm/:id /play/:code /hero/:id
+        ├── socket.ts         # Socket.io singleton
+        ├── pages/            # Home, GMDashboard, PlayerLobby, PlayerSheet
+        ├── components/       # HeroCard, MonsterTracker, QuestSelector, …
+        └── stores/           # Zustand: campaign, session, hero
+```
+
+### Deployment
+
+See [DEPLOY.md](DEPLOY.md) for full AWS + Cloudflare Tunnel deployment instructions with end-to-end HTTPS.
 
 ---
 
@@ -69,20 +132,24 @@ When a session is created from a quest:
 
 ---
 
-## 4. Tech Stack (Recommended)
+## 4. Tech Stack
 
 ### Frontend
-- React (Vite or Next.js)
-- TypeScript
-- TailwindCSS
-- Zustand or Redux Toolkit
-- Socket.io client
+- **Vite** + **React 18** + **TypeScript**
+- **TailwindCSS v3**
+- **Zustand** (state management)
+- **Socket.io-client**
+- **React Router v6**
 
 ### Backend
-- Node.js + Express (TypeScript)
-- Socket.io (WebSocket)
-- MongoDB (or DynamoDB if AWS)
-- Lightweight auth (join codes + GM token; JWT optional)
+- **Node.js 20** + **Express** + **TypeScript**
+- **Socket.io** (WebSocket + HTTP long-poll fallback)
+- **MongoDB** + **Mongoose**
+- Auth: join codes (6-char alphanumeric) + GM token stored in `sessionStorage`
+
+### Monorepo
+- **npm workspaces** (`shared/`, `server/`, `client/`)
+- `@hq/shared` compiled to CommonJS via `tsc`; consumed by server at runtime and by Vite directly from source at build time
 
 ---
 
