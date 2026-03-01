@@ -55,3 +55,9 @@ export function onError(handler: (err: { message: string }) => void) {
   s.on("error", handler);
   return () => { s.off("error", handler); };
 }
+
+export function onDiceRoll(handler: (roll: { rollType: string; diceCount: number; results: string[]; rollerName: string }) => void) {
+  const s = getSocket();
+  s.on("dice_roll", handler);
+  return () => { s.off("dice_roll", handler); };
+}

@@ -1,8 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { QUESTS, MONSTER_TYPES, resolveEffectiveRules } from "@hq/shared";
+import { GEAR_CATALOG, QUESTS, MONSTER_TYPES, resolveEffectiveRules } from "@hq/shared";
 import type { Campaign, Hero, Session } from "@hq/shared";
-import { joinSession, onStateUpdate, sendCommand } from "../socket";
+import { joinSession, onDiceRoll, onStateUpdate, sendCommand } from "../socket";
+
+const EQUIP_GEAR = GEAR_CATALOG.filter((g) => g.category !== "consumable");
+const CONSUMABLE_GEAR = GEAR_CATALOG.filter((g) => g.category === "consumable");
 import QuestSelector from "../components/QuestSelector";
 import PartyOverview from "../components/PartyOverview";
 import MonsterTracker from "../components/MonsterTracker";
@@ -28,6 +31,14 @@ export default function GMDashboard() {
   const [spawnLabel, setSpawnLabel] = useState("");
   const [spawnRoom, setSpawnRoom] = useState("room-1");
 
+  // Auto-fill label with next sequential number when monster type or session changes
+  useEffect(() => {
+    if (!spawnType) return;
+    const count = session?.monsters.filter((m) => m.monsterTypeId === spawnType).length ?? 0;
+    const mt = MONSTER_TYPES.find((m) => m.id === spawnType);
+    if (mt) setSpawnLabel(`${mt.name} ${count + 1}`);
+  }, [spawnType, session?.monsters]);
+
   // Hero management state
   const [managedHeroId, setManagedHeroId] = useState<string | null>(null);
   const [goldAmount, setGoldAmount] = useState("");
@@ -37,6 +48,14 @@ export default function GMDashboard() {
   const [newConsumName, setNewConsumName] = useState("");
   const [newConsumQty, setNewConsumQty] = useState("1");
   const [newConsumEffect, setNewConsumEffect] = useState("");
+
+  // Gear catalog dropdowns for hero management
+  const [gmGearId, setGmGearId] = useState(EQUIP_GEAR[0]?.id ?? "");
+  const [gmConsumableId, setGmConsumableId] = useState(CONSUMABLE_GEAR[0]?.id ?? "");
+
+  // Dice roll toast
+  const [diceToast, setDiceToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadHeroes = useCallback(async () => {
     if (!campaignId) return;
@@ -89,6 +108,20 @@ export default function GMDashboard() {
     });
     return unsub;
   }, [campaignId]);
+
+  // Dice roll toast listener
+  useEffect(() => {
+    const unsub = onDiceRoll((roll) => {
+      const skulls = roll.results.filter((r) => r === "skull").length;
+      const shields = roll.results.filter((r) => r === "shield").length;
+      const icons = roll.results.map((r) => (r === "skull" ? (roll.rollType === "attack" ? "⚔️" : "💀") : "🛡️")).join(" ");
+      const msg = `${roll.rollerName} rolled ${roll.rollType}: ${icons} — ${skulls} ${roll.rollType === "attack" ? "hit(s)" : "wound(s)"}, ${shields} block(s)`;
+      setDiceToast(msg);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setDiceToast(null), 5000);
+    });
+    return unsub;
+  }, []);
 
   // When a session becomes available (on load or after starting one), also join its socket room
   const sessionId = session?.id;
@@ -214,6 +247,32 @@ export default function GMDashboard() {
     }
   }
 
+  async function equipFromCatalog() {
+    if (!managedHeroId || !gmGearId) return;
+    const item = EQUIP_GEAR.find((g) => g.id === gmGearId);
+    if (!item) return;
+    const res = await fetch(`/api/heroes/${managedHeroId}/equipment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: item.name, attackBonus: item.attackBonus, defendBonus: item.defendBonus }),
+    });
+    const data = await res.json();
+    if (res.ok) updateHeroInList(data.hero);
+  }
+
+  async function addConsumableFromCatalog() {
+    if (!managedHeroId || !gmConsumableId) return;
+    const item = CONSUMABLE_GEAR.find((g) => g.id === gmConsumableId);
+    if (!item) return;
+    const res = await fetch(`/api/heroes/${managedHeroId}/consumables`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: item.name, effect: item.description, quantity: 1 }),
+    });
+    const data = await res.json();
+    if (res.ok) updateHeroInList(data.hero);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   if (!serverReady) return <ServerGate onReady={() => setServerReady(true)} />;
@@ -320,7 +379,14 @@ export default function GMDashboard() {
 
         {activeTab === "party" && (
           <div className="space-y-4">
-            <h2 className="text-lg font-display text-hq-amber">Party</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-display text-hq-amber">Party</h2>
+              {heroes.length > 0 && (
+                <span className="text-sm text-parchment/60">
+                  💰 Party gold: <span className="text-hq-amber font-bold">{heroes.reduce((s, h) => s + h.gold, 0)}</span>
+                </span>
+              )}
+            </div>
             <PartyOverview heroes={heroes} isGM={true} />
 
             {heroes.length > 0 && (
@@ -413,6 +479,18 @@ export default function GMDashboard() {
                           Add Equipment
                         </button>
                       </div>
+                      {/* Armory catalog */}
+                      <div className="pt-2 border-t border-parchment/10">
+                        <p className="text-xs text-parchment/50 mb-1">From Armory</p>
+                        <div className="flex gap-2">
+                          <select className="input flex-1 text-sm" value={gmGearId} onChange={(e) => setGmGearId(e.target.value)}>
+                            {EQUIP_GEAR.map((g) => (
+                              <option key={g.id} value={g.id}>{g.name} — {g.description}</option>
+                            ))}
+                          </select>
+                          <button className="btn-secondary text-sm" onClick={equipFromCatalog}>Equip</button>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Consumables */}
@@ -457,6 +535,18 @@ export default function GMDashboard() {
                         >
                           Add Consumable
                         </button>
+                      </div>
+                      {/* General Store catalog */}
+                      <div className="pt-2 border-t border-parchment/10">
+                        <p className="text-xs text-parchment/50 mb-1">From General Store</p>
+                        <div className="flex gap-2">
+                          <select className="input flex-1 text-sm" value={gmConsumableId} onChange={(e) => setGmConsumableId(e.target.value)}>
+                            {CONSUMABLE_GEAR.map((g) => (
+                              <option key={g.id} value={g.id}>{g.name} — {g.description}</option>
+                            ))}
+                          </select>
+                          <button className="btn-secondary text-sm" onClick={addConsumableFromCatalog}>Add</button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -518,6 +608,13 @@ export default function GMDashboard() {
           <p className="text-center text-parchment/50 py-8">Start a session first to track rooms.</p>
         )}
       </main>
+
+      {/* Dice roll toast */}
+      {diceToast && (
+        <div className="fixed bottom-4 left-4 right-4 z-50 bg-hq-brown border border-hq-amber rounded-lg px-4 py-3 shadow-lg">
+          <p className="text-sm text-parchment text-center">{diceToast}</p>
+        </div>
+      )}
     </div>
   );
 }

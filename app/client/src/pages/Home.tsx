@@ -2,9 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { PackId } from "@hq/shared";
 
+const LS_GM_ID   = "gmCampaignId";
+const LS_GM_NAME = "gmCampaignName";
+
 export default function Home() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"create" | "join">("create");
+  const [savedCampaignId]   = useState(() => localStorage.getItem(LS_GM_ID));
+  const [savedCampaignName] = useState(() => localStorage.getItem(LS_GM_NAME));
 
   // Create campaign state
   const [campaignName, setCampaignName] = useState("");
@@ -33,6 +38,8 @@ export default function Home() {
       // Store GM identity
       sessionStorage.setItem("role", "gm");
       sessionStorage.setItem("campaignId", data.campaign.id);
+      localStorage.setItem(LS_GM_ID, data.campaign.id);
+      localStorage.setItem(LS_GM_NAME, data.campaign.name);
       navigate(`/gm/${data.campaign.id}`);
     } catch (err: any) {
       setCreateError(err.message);
@@ -73,6 +80,39 @@ export default function Home() {
         <h1 className="text-5xl font-display text-hq-amber mb-2">⚔️ HeroQuest</h1>
         <p className="text-parchment/70 text-lg">Companion App</p>
       </div>
+
+      {/* GM campaign resume banner */}
+      {savedCampaignId && (
+        <div className="card w-full max-w-md mb-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-parchment/50 uppercase tracking-wider">Previous Campaign</p>
+            <p className="font-bold text-parchment truncate">{savedCampaignName ?? savedCampaignId}</p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              className="btn-primary text-sm px-4"
+              onClick={() => {
+                sessionStorage.setItem("role", "gm");
+                sessionStorage.setItem("campaignId", savedCampaignId);
+                navigate(`/gm/${savedCampaignId}`);
+              }}
+            >
+              Return
+            </button>
+            <button
+              className="btn-secondary text-xs px-2"
+              title="Forget this campaign"
+              onClick={() => {
+                localStorage.removeItem(LS_GM_ID);
+                localStorage.removeItem(LS_GM_NAME);
+                window.location.reload();
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tab switcher */}
       <div className="flex gap-2 mb-6">

@@ -77,7 +77,13 @@ router.patch("/:id/quest-log/:questId", async (req, res) => {
     if (!entry) return res.status(404).json({ error: "Quest not in log" });
 
     entry.status = status as "locked" | "available" | "completed";
-    if (status === "completed") entry.completedAt = new Date();
+    if (status === "completed") {
+      entry.completedAt = new Date();
+      // Auto-unlock the next quest in the log
+      const idx = campaign.questLog.findIndex((q) => q.questId === req.params.questId);
+      const next = campaign.questLog[idx + 1];
+      if (next && next.status === "locked") next.status = "available";
+    }
     await campaign.save();
 
     return res.json({ campaign: docToJson(campaign) });

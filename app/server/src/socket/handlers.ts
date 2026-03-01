@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { SessionModel } from "../models/Session";
 import { HeroModel } from "../models/Hero";
 import type { SocketCommand, EffectiveRules } from "@hq/shared";
-import { MONSTER_TYPES } from "@hq/shared";
+import { MONSTER_TYPES, QUESTS } from "@hq/shared";
 import { docToJson } from "../utils/docToJson";
 
 export function registerSocketHandlers(io: Server, socket: Socket) {
@@ -29,6 +29,10 @@ export function registerSocketHandlers(io: Server, socket: Socket) {
           break;
         case "REMOVE_MONSTER":
           await handleRemoveMonster(io, socket, cmd);
+          break;
+        case "ROLL_DICE":
+          // Broadcast dice roll to all clients in the campaign (ephemeral — no DB save)
+          io.to(`campaign:${socket.data.campaignId}`).emit("dice_roll", cmd);
           break;
         default:
           socket.emit("error", { message: "Unknown command" });
@@ -149,11 +153,38 @@ async function handleSetRoomState(io: Server, socket: Socket, cmd: Extract<Socke
   if (!session) return socket.emit("error", { message: "Session not found" });
 
   const existing = session.rooms.find((r) => r.roomId === roomId);
+  const wasHidden = !existing || existing.state === "hidden";
+
   if (existing) {
     existing.state = state;
   } else {
     session.rooms.push({ roomId, state });
   }
+
+  // Auto-spawn monsters on first reveal (hidden → revealed only)
+  if (state === "revealed" && wasHidden) {
+    const quest = QUESTS.find((q) => q.id === (session as any).questId);
+    const rules = quest?.roomSpawns?.[roomId] ?? [];
+    for (const rule of rules) {
+      const mt = MONSTER_TYPES.find((m) => m.id === rule.monsterTypeId);
+      if (!mt) continue;
+      const existingCount = (session.monsters as any[]).filter(
+        (m) => m.monsterTypeId === rule.monsterTypeId
+      ).length;
+      for (let i = 0; i < rule.count; i++) {
+        (session.monsters as any).push({
+          id: `${rule.monsterTypeId}-${Date.now()}-${i}`,
+          monsterTypeId: rule.monsterTypeId,
+          label: `${mt.name} ${existingCount + i + 1}`,
+          bodyPointsCurrent: mt.bodyPointsMax,
+          bodyPointsMax: mt.bodyPointsMax,
+          mindPointsCurrent: mt.mindPointsCurrent,
+          roomId,
+        });
+      }
+    }
+  }
+
   await session.save();
 
   io.to(`session:${sessionId}`).emit("state_update", { type: "SESSION_UPDATED", session: docToJson(session) });

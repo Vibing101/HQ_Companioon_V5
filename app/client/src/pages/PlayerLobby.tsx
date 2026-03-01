@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { HERO_BASE_STATS, resolveEffectiveRules, QUESTS, PACKS } from "@hq/shared";
-import type { Campaign, HeroTypeId } from "@hq/shared";
+import type { Campaign, Hero, HeroTypeId } from "@hq/shared";
 import { joinSession } from "../socket";
 
 const HERO_ICONS: Record<string, string> = {
@@ -24,6 +24,7 @@ export default function PlayerLobby() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [existingHeroes, setExistingHeroes] = useState<Hero[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +51,11 @@ export default function PlayerLobby() {
         if (data.error) throw new Error(data.error);
         setCampaign(data.campaign);
         sessionStorage.setItem("campaignId", data.campaign.id);
+        // Load existing heroes so players can rejoin
+        fetch(`/api/heroes/campaign/${data.campaign.id}`)
+          .then((r) => r.json())
+          .then((d) => setExistingHeroes(d.heroes ?? []))
+          .catch(() => {/* non-critical */});
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -71,6 +77,13 @@ export default function PlayerLobby() {
       PACKS[packId].allowedHeroes.forEach((h) => allHeroes.add(h));
     });
     return Array.from(allHeroes);
+  }
+
+  async function claimHero(heroId: string) {
+    if (!campaign) return;
+    await joinSession({ campaignId: campaign.id, role: "player", playerId });
+    sessionStorage.setItem("heroId", heroId);
+    navigate(`/hero/${heroId}`);
   }
 
   async function createHero() {
@@ -115,6 +128,37 @@ export default function PlayerLobby() {
       </header>
 
       <main className="flex-1 p-4 space-y-5 overflow-y-auto">
+        {existingHeroes.length > 0 && (
+          <div className="card space-y-3">
+            <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Resume an existing hero</h2>
+            <div className="space-y-2">
+              {existingHeroes.map((hero) => (
+                <button
+                  key={hero.id}
+                  className="w-full card text-left hover:border-hq-amber/60 transition-all"
+                  onClick={() => claimHero(hero.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{HERO_ICONS[hero.heroTypeId]}</span>
+                    <div className="flex-1">
+                      <p className="font-bold text-parchment">{hero.name}</p>
+                      <p className="text-xs text-parchment/60 capitalize">{hero.heroTypeId}</p>
+                    </div>
+                    <div className="text-xs text-parchment/50 text-right">
+                      <div>❤️ {hero.bodyPointsCurrent}/{hero.bodyPointsMax}</div>
+                      <div>🧠 {hero.mindPointsCurrent}/{hero.mindPointsMax}</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {existingHeroes.length > 0 && (
+          <p className="text-xs text-parchment/40 text-center">— or create a new hero —</p>
+        )}
+
         <p className="text-sm text-parchment/60">
           Available heroes for this quest:
         </p>
