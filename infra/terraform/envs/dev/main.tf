@@ -103,83 +103,12 @@ resource "aws_instance" "dev" {
   }
 
   # user_data bootstraps the full stack on first boot.
-  # Terraform interpolates ${...} before sending to EC2.
-  # Shell $ signs inside inner heredocs are safe — Terraform only looks for ${...}.
-  user_data = <<-USERDATA
-    #!/bin/bash
-    set -euo pipefail
-    exec > /var/log/user-data.log 2>&1
-
-    # ── System ────────────────────────────────────────────────────────────────
-    apt-get update -y
-    apt-get install -y git curl gnupg
-
-    # ── Node.js 20 ────────────────────────────────────────────────────────────
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
-
-    # ── MongoDB 8 (Ubuntu 24.04 / Noble) ──────────────────────────────────────
-    curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
-      gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
-    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] \
-      https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | \
-      tee /etc/apt/sources.list.d/mongodb-org-8.0.list
-    apt-get update -y
-    apt-get install -y mongodb-org
-    systemctl enable --now mongod
-
-    # ── cloudflared ───────────────────────────────────────────────────────────
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
-      -o /tmp/cloudflared.deb
-    dpkg -i /tmp/cloudflared.deb
-
-    # ── Clone + build app ─────────────────────────────────────────────────────
-    git clone https://github.com/${var.github_repo}.git /opt/hq
-    cd /opt/hq
-
-    # Write client production env BEFORE building (baked in by Vite at build time)
-    printf 'VITE_SERVER_URL=https://${local.hostname}\n' \
-      > /opt/hq/app/client/.env.production
-
-    # Write server runtime env
-    cat > /opt/hq/app/server/.env <<DOTENV
-PORT=4000
-MONGODB_URI=mongodb://localhost:27017/heroquest
-CLIENT_URL=https://${local.hostname}
-DOTENV
-
-    npm install
-    npm run build
-
-    # ── systemd service for the Node.js app ───────────────────────────────────
-    cat > /etc/systemd/system/hq-server.service <<SVCEOF
-[Unit]
-Description=HQ Companion Server
-After=network.target mongod.service
-Wants=mongod.service
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/hq
-ExecStart=/usr/bin/node app/server/dist/index.js
-Restart=always
-RestartSec=5
-EnvironmentFile=/opt/hq/app/server/.env
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
-    systemctl daemon-reload
-    systemctl enable --now hq-server
-
-    # ── Cloudflare Tunnel ─────────────────────────────────────────────────────
-    # 'cloudflared service install <TOKEN>' installs cloudflared as a systemd
-    # service. It reads ingress config from the Cloudflare API (managed by
-    # cloudflare_tunnel_config in cloudflare.tf) — no local config.yml needed.
-    cloudflared service install ${cloudflare_tunnel.hq.tunnel_token}
-    systemctl enable --now cloudflared
-  USERDATA
+  # Loaded from user_data.sh via templatefile() to avoid nested heredoc issues.
+  user_data = templatefile("${path.module}/user_data.sh", {
+    github_repo  = var.github_repo
+    hostname     = local.hostname
+    tunnel_token = cloudflare_tunnel.hq.tunnel_token
+  })
 
   # Tunnel token is known only after cloudflare_tunnel is created,
   # so Terraform will create the tunnel before this instance.
