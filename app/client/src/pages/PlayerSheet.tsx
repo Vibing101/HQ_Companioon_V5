@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { Hero } from "@hq/shared";
-import { GEAR_CATALOG, HERO_SPELL_ACCESS, SPELLS } from "@hq/shared";
+import { ALL_SPELL_ELEMENTS, GEAR_CATALOG, HERO_SPELL_ACCESS, SPELLS } from "@hq/shared";
+import type { SpellElement } from "@hq/shared";
 import { joinSession, onDiceRoll, onStateUpdate, sendCommand } from "../socket";
 import StatAdjuster from "../components/StatAdjuster";
 
@@ -35,6 +36,7 @@ export default function PlayerSheet() {
   const { heroId } = useParams<{ heroId: string }>();
   const [hero, setHero] = useState<Hero | null>(null);
   const [partyGold, setPartyGold] = useState<number | null>(null);
+  const [partyHeroes, setPartyHeroes] = useState<Hero[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"stats" | "inventory" | "spells">("stats");
@@ -51,14 +53,15 @@ export default function PlayerSheet() {
   // Gold adjustment
   const [goldInput, setGoldInput] = useState("");
 
-  function fetchPartyGold() {
+  function fetchPartyData() {
     const cid = sessionStorage.getItem("campaignId");
     if (!cid) return;
     fetch(`/api/heroes/campaign/${cid}`)
       .then((r) => r.json())
       .then((d) => {
-        const total = (d.heroes ?? []).reduce((s: number, h: any) => s + (h.gold ?? 0), 0);
-        setPartyGold(total);
+        const heroes = d.heroes ?? [];
+        setPartyHeroes(heroes);
+        setPartyGold(heroes.reduce((s: number, h: any) => s + (h.gold ?? 0), 0));
       })
       .catch(() => {/* non-critical */});
   }
@@ -79,7 +82,7 @@ export default function PlayerSheet() {
       .then((data) => {
         if (data.error) throw new Error(data.error);
         setHero(data.hero);
-        fetchPartyGold();
+        fetchPartyData();
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -89,7 +92,11 @@ export default function PlayerSheet() {
     const unsub = onStateUpdate((update) => {
       if (update.type === "HERO_UPDATED" && update.hero.id === heroId) {
         setHero(update.hero);
-        fetchPartyGold();
+        fetchPartyData();
+      }
+      // Another hero updated (e.g. wizard auto-assigned after elf picks) — refresh party data
+      if (update.type === "HERO_UPDATED" && update.hero.id !== heroId) {
+        fetchPartyData();
       }
     });
     return unsub;
@@ -128,13 +135,14 @@ export default function PlayerSheet() {
     setGoldInput("");
   }
 
-  function toggleSpell(spellName: string) {
+  // Spell element selection — choosing an element grants all spells in that element
+  function toggleElement(element: string) {
     if (!hero || !heroId) return;
     const access = HERO_SPELL_ACCESS[hero.heroTypeId];
     if (!access) return;
-    const chosen = hero.spellsChosenThisQuest.includes(spellName);
-    if (!chosen && hero.spellsChosenThisQuest.length >= access.limit) return;
-    sendCommand({ type: "SELECT_SPELL", heroId, spell: spellName, chosen: !chosen });
+    const chosen = hero.spellsChosenThisQuest.includes(element);
+    if (!chosen && hero.spellsChosenThisQuest.length >= access.elementLimit) return;
+    sendCommand({ type: "SELECT_SPELL", heroId, spell: element, chosen: !chosen });
   }
 
   function rollDice(rollType: "attack" | "defense") {
@@ -195,11 +203,6 @@ export default function PlayerSheet() {
 
   const icon = HERO_ICONS[hero.heroTypeId] ?? "🧝";
   const spellAccess = HERO_SPELL_ACCESS[hero.heroTypeId];
-  const availableSpells = spellAccess
-    ? SPELLS.filter((s) => spellAccess.elements.includes(s.element))
-    : [];
-  const spellLimit = spellAccess?.limit ?? 0;
-  const spellElements = [...new Set(availableSpells.map((s) => s.element))];
 
   const effectiveAttack = hero.attackDice + hero.equipment.reduce((s, e) => s + (e.attackBonus ?? 0), 0);
   const effectiveDefend = hero.defendDice + hero.equipment.reduce((s, e) => s + (e.defendBonus ?? 0), 0);
@@ -412,54 +415,115 @@ export default function PlayerSheet() {
         )}
 
         {tab === "spells" && (
-          <div className="card space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Spells</h2>
-              {availableSpells.length === 0 ? (
-                <p className="text-parchment/40 text-sm mt-3">This hero cannot cast spells</p>
-              ) : (
-                <p className="text-xs text-parchment/50 mt-1">
-                  Select spells for this quest ({hero.spellsChosenThisQuest.length}/{spellLimit} chosen)
-                </p>
-              )}
-            </div>
+          <div className="space-y-3">
+            {!spellAccess ? (
+              <div className="card">
+                <p className="text-parchment/40 text-sm">This hero cannot cast spells</p>
+              </div>
+            ) : (() => {
+              // For elf: only show elements not already claimed by wizard
+              const wizardHero = partyHeroes.find((h) => h.heroTypeId === "wizard");
+              const wizardChosen: string[] = wizardHero?.spellsChosenThisQuest ?? [];
 
-            {spellElements.map((element) => {
-              const elementSpells = availableSpells.filter((s) => s.element === element);
+              const selectableElements = hero.heroTypeId === "elf"
+                ? ALL_SPELL_ELEMENTS.filter((e) => !wizardChosen.includes(e))
+                : spellAccess.elements;
+
+              // For wizard: the 3rd element is auto-assigned (not manually chosen)
+              const manuallyChosen = hero.spellsChosenThisQuest.slice(0, spellAccess.elementLimit);
+              const autoAssigned = hero.heroTypeId === "wizard"
+                ? hero.spellsChosenThisQuest.filter((e) => !manuallyChosen.includes(e) || hero.spellsChosenThisQuest.indexOf(e) >= spellAccess.elementLimit)
+                : [];
+              // Simpler: auto-assigned = any chosen beyond the elementLimit
+              const chosenBeyondLimit = hero.spellsChosenThisQuest.length > spellAccess.elementLimit
+                ? hero.spellsChosenThisQuest.slice(spellAccess.elementLimit)
+                : [];
+
+              const phaseHint = hero.heroTypeId === "wizard"
+                ? `Pick 2 schools (Phase 1). After Elf picks 1, your 3rd school is auto-assigned.`
+                : `Pick 1 school from the ${selectableElements.length} remaining after Wizard's choices.`;
+
               return (
-                <div key={element}>
-                  <p className="text-xs font-bold text-parchment/60 uppercase tracking-wider mb-2">
-                    {ELEMENT_ICONS[element]} {ELEMENT_LABELS[element]}
-                  </p>
-                  <div className="space-y-2">
-                    {elementSpells.map((spell) => {
-                      const chosen = hero.spellsChosenThisQuest.includes(spell.name);
-                      const atLimit = !chosen && hero.spellsChosenThisQuest.length >= spellLimit;
-                      return (
-                        <label
-                          key={spell.id}
-                          className={`flex items-start gap-3 cursor-pointer ${atLimit ? "opacity-40 cursor-not-allowed" : ""}`}
-                        >
+                <>
+                  <div className="card py-2 space-y-1">
+                    <p className="text-xs text-parchment/60">{phaseHint}</p>
+                    <p className="text-xs text-parchment/40">
+                      Chosen: {hero.spellsChosenThisQuest.length} school(s)
+                      {hero.heroTypeId === "wizard" && " (2 chosen + 1 auto-assigned)"}
+                    </p>
+                  </div>
+
+                  {selectableElements.map((element) => {
+                    const isChosen = hero.spellsChosenThisQuest.includes(element);
+                    const isAutoAssigned = chosenBeyondLimit.includes(element);
+                    const isManuallyChosen = isChosen && !isAutoAssigned;
+                    const atLimit = !isChosen && manuallyChosen.length >= spellAccess.elementLimit;
+                    const elementSpells = SPELLS.filter((s) => s.element === element);
+                    return (
+                      <div
+                        key={element}
+                        className={`card p-3 border transition-colors ${
+                          isChosen ? "border-hq-amber/50 bg-hq-amber/5" : "border-parchment/10"
+                        }`}
+                      >
+                        <label className={`flex items-center gap-3 ${isAutoAssigned ? "cursor-default" : atLimit ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
                           <input
                             type="checkbox"
-                            checked={chosen}
-                            disabled={atLimit}
-                            className="accent-hq-amber w-4 h-4 mt-0.5 shrink-0"
-                            onChange={() => toggleSpell(spell.name)}
+                            checked={isChosen}
+                            disabled={atLimit || isAutoAssigned}
+                            className="accent-hq-amber w-4 h-4 shrink-0"
+                            onChange={() => toggleElement(element)}
                           />
-                          <div>
-                            <p className={`text-sm font-semibold ${chosen ? "text-parchment" : "text-parchment/70"}`}>
-                              {spell.name}
-                            </p>
-                            <p className="text-xs text-parchment/50">{spell.description}</p>
-                          </div>
+                          <span className={`font-bold text-sm ${isChosen ? "text-hq-amber" : "text-parchment/70"}`}>
+                            {ELEMENT_ICONS[element]} {ELEMENT_LABELS[element]}
+                          </span>
+                          {isAutoAssigned && (
+                            <span className="ml-1 text-xs text-parchment/40 italic">auto-assigned</span>
+                          )}
+                          <span className="ml-auto text-xs text-parchment/40">{elementSpells.length} spells</span>
                         </label>
-                      );
-                    })}
-                  </div>
-                </div>
+
+                        {isChosen && (
+                          <ul className="mt-3 space-y-2 pl-7 border-t border-hq-amber/20 pt-3">
+                            {elementSpells.map((spell) => (
+                              <li key={spell.id}>
+                                <p className="text-sm font-semibold text-parchment">{spell.name}</p>
+                                <p className="text-xs text-parchment/50">{spell.description}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Wizard: also show the auto-assigned element if it's not in selectableElements */}
+                  {hero.heroTypeId === "wizard" && chosenBeyondLimit.map((element) => {
+                    if (selectableElements.includes(element as SpellElement)) return null;
+                    const elementSpells = SPELLS.filter((s) => s.element === element);
+                    return (
+                      <div key={element} className="card p-3 border border-hq-amber/50 bg-hq-amber/5">
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-sm text-hq-amber">
+                            {ELEMENT_ICONS[element]} {ELEMENT_LABELS[element]}
+                          </span>
+                          <span className="text-xs text-parchment/40 italic">auto-assigned</span>
+                          <span className="ml-auto text-xs text-parchment/40">{elementSpells.length} spells</span>
+                        </div>
+                        <ul className="mt-3 space-y-2 pl-4 border-t border-hq-amber/20 pt-3">
+                          {elementSpells.map((spell) => (
+                            <li key={spell.id}>
+                              <p className="text-sm font-semibold text-parchment">{spell.name}</p>
+                              <p className="text-xs text-parchment/50">{spell.description}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
       </main>

@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { SessionModel } from "../models/Session";
 import { HeroModel } from "../models/Hero";
 import type { SocketCommand, EffectiveRules } from "@hq/shared";
-import { MONSTER_TYPES, QUESTS, GEAR_CATALOG, HERO_SPELL_ACCESS } from "@hq/shared";
+import { MONSTER_TYPES, QUESTS, GEAR_CATALOG, HERO_SPELL_ACCESS, ALL_SPELL_ELEMENTS } from "@hq/shared";
 import { docToJson } from "../utils/docToJson";
 
 export function registerSocketHandlers(io: Server, socket: Socket) {
@@ -125,7 +125,7 @@ async function handleSelectSpell(io: Server, socket: Socket, cmd: Extract<Socket
   }
 
   const access = HERO_SPELL_ACCESS[hero.heroTypeId as keyof typeof HERO_SPELL_ACCESS];
-  const limit = access?.limit;
+  const limit = access?.elementLimit;
   if (!limit) return socket.emit("error", { message: "This hero cannot cast spells" });
 
   if (chosen) {
@@ -141,6 +141,21 @@ async function handleSelectSpell(io: Server, socket: Socket, cmd: Extract<Socket
 
   await hero.save();
   io.to(`campaign:${hero.campaignId}`).emit("state_update", { type: "HERO_UPDATED", hero: docToJson(hero) });
+
+  // Phase 3 auto-assign: when Elf finishes picking their 1 element,
+  // find the Wizard in the same campaign and assign the remaining unchosen element.
+  if (chosen && hero.heroTypeId === "elf" && hero.spellsChosenThisQuest.length === 1) {
+    const wizard = await HeroModel.findOne({ campaignId: hero.campaignId, heroTypeId: "wizard" });
+    if (wizard && wizard.spellsChosenThisQuest.length === 2) {
+      const taken = new Set([...wizard.spellsChosenThisQuest, ...hero.spellsChosenThisQuest]);
+      const remaining = ALL_SPELL_ELEMENTS.find((e) => !taken.has(e));
+      if (remaining) {
+        (wizard.spellsChosenThisQuest as any).push(remaining);
+        await wizard.save();
+        io.to(`campaign:${wizard.campaignId}`).emit("state_update", { type: "HERO_UPDATED", hero: docToJson(wizard) });
+      }
+    }
+  }
 }
 
 async function handleSetRoomState(io: Server, socket: Socket, cmd: Extract<SocketCommand, { type: "SET_ROOM_STATE" }>) {

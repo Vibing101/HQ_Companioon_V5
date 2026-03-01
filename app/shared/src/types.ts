@@ -509,10 +509,14 @@ export const SPELLS: SpellCard[] = [
   { id: "water_of_strength", element: "water", name: "Water of Strength", description: "Until your next turn, roll 2 extra attack dice" },
 ];
 
-// Spell access rules per hero: which elements they can choose from, and how many per quest.
-// Wizard: all 4 elements, 3 spells. Elf: Air + Water only, 2 spells.
-// Adjust limit values to match your physical game copy if needed.
-export const HERO_SPELL_ACCESS: Partial<Record<HeroTypeId, { elements: SpellElement[]; limit: number }>> = {
-  wizard: { elements: ["air", "earth", "fire", "water"], limit: 3 },
-  elf:    { elements: ["air", "water"],                   limit: 2 },
+// Spell selection sequence (group mechanic):
+//   Phase 1 — Wizard picks 2 elements from all 4.
+//   Phase 2 — Elf picks 1 element from the 2 NOT chosen by Wizard.
+//   Phase 3 — The remaining (unchosen) element is auto-assigned to Wizard (server-side).
+// Result: Wizard ends with 3 schools, Elf ends with 1. Each hero gets ALL spells from their schools.
+export const HERO_SPELL_ACCESS: Partial<Record<HeroTypeId, { elements: SpellElement[]; elementLimit: number }>> = {
+  wizard: { elements: ["air", "earth", "fire", "water"], elementLimit: 2 },
+  elf:    { elements: ["air", "earth", "fire", "water"], elementLimit: 1 },
 };
+
+export const ALL_SPELL_ELEMENTS: SpellElement[] = ["air", "earth", "fire", "water"];
