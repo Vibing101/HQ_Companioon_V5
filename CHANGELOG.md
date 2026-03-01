@@ -121,3 +121,10 @@ Updated all documentation to reflect the current state of the codebase.
 ---
 
 _Update this file whenever changes are made to the codebase, configuration, or documentation._
+
+---
+## [2026-03-01] — Phase 1 dev baseline
+**Category:** Infrastructure
+Provisioned the initial dev EC2 baseline using the default VPC, SSM (Session Manager), and a restricted security group.
+### infra/terraform/envs/dev/main.tf
+- Added Phase 1 dev baseline resources: default VPC + subnet selection, EC2 IAM role/instance profile, security group, Amazon Linux 2 AMI, and an EC2 instance.
