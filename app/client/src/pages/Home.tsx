@@ -5,6 +5,21 @@ import type { PackId } from "@hq/shared";
 const LS_GM_ID   = "gmCampaignId";
 const LS_GM_NAME = "gmCampaignName";
 
+const PACK_OPTIONS: { id: PackId; label: string; subtitle: string; heroes: string }[] = [
+  {
+    id: "BASE",
+    label: "Base Game",
+    subtitle: "The original adventure",
+    heroes: "Barbarian · Dwarf · Elf · Wizard",
+  },
+  {
+    id: "DREAD_MOON",
+    label: "Rise of the Dread Moon",
+    subtitle: "Expansion pack",
+    heroes: "+ Knight · reputation · more",
+  },
+];
+
 export default function Home() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"create" | "join">("create");
@@ -35,7 +50,6 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create");
-      // Store GM identity
       sessionStorage.setItem("role", "gm");
       sessionStorage.setItem("campaignId", data.campaign.id);
       localStorage.setItem(LS_GM_ID, data.campaign.id);
@@ -75,22 +89,26 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      <div className="mb-8 text-center">
-        <h1 className="text-5xl font-display text-hq-amber mb-2">⚔️ HeroQuest</h1>
-        <p className="text-parchment/70 text-lg">Companion App</p>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-hq-dark">
+
+      {/* Hero section */}
+      <div className="mb-10 text-center">
+        <div className="text-6xl mb-4">⚔️</div>
+        <h1 className="text-5xl font-display text-hq-amber tracking-wide mb-2">HeroQuest</h1>
+        <p className="text-parchment/50 text-base tracking-widest uppercase text-sm">Companion App</p>
+        <div className="mt-4 h-px w-24 mx-auto bg-hq-amber/30" />
       </div>
 
-      {/* GM campaign resume banner */}
+      {/* GM resume banner */}
       {savedCampaignId && (
-        <div className="card w-full max-w-md mb-4 flex items-center justify-between gap-3">
+        <div className="w-full max-w-md mb-6 rounded-lg border border-hq-amber/40 bg-hq-brown/60 px-5 py-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs text-parchment/50 uppercase tracking-wider">Previous Campaign</p>
+            <p className="text-xs text-parchment/40 uppercase tracking-widest mb-0.5">Previous Campaign</p>
             <p className="font-bold text-parchment truncate">{savedCampaignName ?? savedCampaignId}</p>
           </div>
           <div className="flex gap-2 shrink-0">
             <button
-              className="btn-primary text-sm px-4"
+              className="btn-primary text-sm px-4 py-1.5"
               onClick={() => {
                 sessionStorage.setItem("role", "gm");
                 sessionStorage.setItem("campaignId", savedCampaignId);
@@ -100,7 +118,7 @@ export default function Home() {
               Return
             </button>
             <button
-              className="btn-secondary text-xs px-2"
+              className="text-xs px-2 py-1.5 rounded border border-parchment/20 text-parchment/40 hover:text-hq-red hover:border-hq-red/40 transition-colors"
               title="Forget this campaign"
               onClick={() => {
                 localStorage.removeItem(LS_GM_ID);
@@ -115,105 +133,125 @@ export default function Home() {
       )}
 
       {/* Tab switcher */}
-      <div className="flex gap-2 mb-6">
-        <button
-          className={`px-6 py-2 rounded-t font-semibold border-b-2 transition-colors ${
-            tab === "create"
-              ? "border-hq-amber text-hq-amber"
-              : "border-transparent text-parchment/50 hover:text-parchment"
-          }`}
-          onClick={() => setTab("create")}
-        >
-          New Campaign
-        </button>
-        <button
-          className={`px-6 py-2 rounded-t font-semibold border-b-2 transition-colors ${
-            tab === "join"
-              ? "border-hq-amber text-hq-amber"
-              : "border-transparent text-parchment/50 hover:text-parchment"
-          }`}
-          onClick={() => setTab("join")}
-        >
-          Join Campaign
-        </button>
-      </div>
+      <div className="w-full max-w-md mb-0">
+        <div className="flex rounded-t-lg overflow-hidden border border-b-0 border-hq-amber/20">
+          {(["create", "join"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-3 text-sm font-semibold tracking-wide transition-colors ${
+                tab === t
+                  ? "bg-hq-brown text-hq-amber"
+                  : "bg-hq-dark/80 text-parchment/40 hover:text-parchment/70"
+              }`}
+            >
+              {t === "create" ? "New Campaign" : "Join Campaign"}
+            </button>
+          ))}
+        </div>
 
-      <div className="card w-full max-w-md">
-        {tab === "create" ? (
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div>
-              <label className="block text-sm text-parchment/70 mb-1">Campaign Name</label>
-              <input
-                className="input"
-                value={campaignName}
-                onChange={(e) => setCampaignName(e.target.value)}
-                placeholder="e.g. The Witch Lord's Return"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm text-parchment/70 mb-2">Expansions</label>
-              <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enabledPacks.includes("BASE")}
-                    onChange={() => togglePack("BASE")}
-                    className="accent-hq-amber w-4 h-4"
-                  />
-                  <span>Base Game</span>
-                  <span className="text-xs text-parchment/50">Barbarian, Dwarf, Elf, Wizard</span>
+        {/* Card */}
+        <div className="bg-hq-brown border border-hq-amber/20 rounded-b-lg rounded-tr-lg p-6">
+          {tab === "create" ? (
+            <form onSubmit={handleCreate} className="space-y-5">
+              <div>
+                <label className="block text-xs text-parchment/50 uppercase tracking-widest mb-2">
+                  Campaign Name
                 </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enabledPacks.includes("DREAD_MOON")}
-                    onChange={() => togglePack("DREAD_MOON")}
-                    className="accent-hq-amber w-4 h-4"
-                  />
-                  <span>Rise of the Dread Moon</span>
-                  <span className="text-xs text-parchment/50">+ Knight, reputation & more</span>
-                </label>
+                <input
+                  className="input"
+                  value={campaignName}
+                  onChange={(e) => setCampaignName(e.target.value)}
+                  placeholder="e.g. The Witch Lord's Return"
+                  required
+                />
               </div>
-            </div>
 
-            {createError && <p className="text-hq-red text-sm">{createError}</p>}
+              <div>
+                <label className="block text-xs text-parchment/50 uppercase tracking-widest mb-3">
+                  Expansions
+                </label>
+                <div className="space-y-2">
+                  {PACK_OPTIONS.map((pack) => {
+                    const checked = enabledPacks.includes(pack.id);
+                    return (
+                      <label
+                        key={pack.id}
+                        className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          checked
+                            ? "border-hq-amber/40 bg-hq-dark/40"
+                            : "border-parchment/10 hover:border-parchment/20"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePack(pack.id)}
+                          className="accent-hq-amber w-4 h-4 mt-0.5 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <p className={`text-sm font-semibold ${checked ? "text-parchment" : "text-parchment/60"}`}>
+                            {pack.label}
+                          </p>
+                          <p className="text-xs text-parchment/40">{pack.heroes}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
 
-            <button
-              type="submit"
-              className="btn-primary w-full"
-              disabled={creating || enabledPacks.length === 0}
-            >
-              {creating ? "Creating…" : "Create Campaign (GM)"}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleJoin} className="space-y-4">
-            <div>
-              <label className="block text-sm text-parchment/70 mb-1">Join Code</label>
-              <input
-                className="input text-center text-2xl tracking-widest uppercase"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
-                placeholder="ABCXYZ"
-                maxLength={6}
-                required
-              />
-            </div>
+              {createError && (
+                <p className="text-hq-red text-sm bg-hq-red/10 border border-hq-red/20 rounded px-3 py-2">
+                  {createError}
+                </p>
+              )}
 
-            {joinError && <p className="text-hq-red text-sm">{joinError}</p>}
+              <button
+                type="submit"
+                className="btn-primary w-full py-3"
+                disabled={creating || enabledPacks.length === 0}
+              >
+                {creating ? "Creating…" : "Create Campaign (GM)"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleJoin} className="space-y-5">
+              <div>
+                <label className="block text-xs text-parchment/50 uppercase tracking-widest mb-2">
+                  Join Code
+                </label>
+                <input
+                  className="input text-center text-3xl tracking-[0.4em] uppercase font-display"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
+                  placeholder="ABCXYZ"
+                  maxLength={6}
+                  required
+                />
+                <p className="text-xs text-parchment/30 text-center mt-2">
+                  Ask your Game Master for the 6-letter code
+                </p>
+              </div>
 
-            <button
-              type="submit"
-              className="btn-primary w-full"
-              disabled={joining || joinCode.length < 6}
-            >
-              {joining ? "Joining…" : "Join as Player"}
-            </button>
-          </form>
-        )}
+              {joinError && (
+                <p className="text-hq-red text-sm bg-hq-red/10 border border-hq-red/20 rounded px-3 py-2">
+                  {joinError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="btn-primary w-full py-3"
+                disabled={joining || joinCode.length < 6}
+              >
+                {joining ? "Joining…" : "Join as Player"}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
+
     </div>
   );
 }

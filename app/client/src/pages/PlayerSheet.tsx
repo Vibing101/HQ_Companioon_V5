@@ -421,56 +421,66 @@ export default function PlayerSheet() {
                 <p className="text-parchment/40 text-sm">This hero cannot cast spells</p>
               </div>
             ) : (() => {
-              // For elf: only show elements not already claimed by wizard
               const wizardHero = partyHeroes.find((h) => h.heroTypeId === "wizard");
-              const wizardChosen: string[] = wizardHero?.spellsChosenThisQuest ?? [];
+              // Only count wizard's manually-chosen elements (not auto-assigned) for blocking elf
+              const wizardManualLimit = HERO_SPELL_ACCESS["wizard"]?.elementLimit ?? 2;
+              const wizardChosen: string[] = (wizardHero?.spellsChosenThisQuest ?? []).slice(0, wizardManualLimit);
+              const wizardDone = !wizardHero || wizardChosen.length >= wizardManualLimit;
 
-              const selectableElements = hero.heroTypeId === "elf"
-                ? ALL_SPELL_ELEMENTS.filter((e) => !wizardChosen.includes(e))
-                : spellAccess.elements;
+              // Always show all 4 elements — wizard's chosen are shown but blocked for elf
+              const allElements = spellAccess.elements; // all 4 for both
 
-              // For wizard: the 3rd element is auto-assigned (not manually chosen)
-              const manuallyChosen = hero.spellsChosenThisQuest.slice(0, spellAccess.elementLimit);
-              const autoAssigned = hero.heroTypeId === "wizard"
-                ? hero.spellsChosenThisQuest.filter((e) => !manuallyChosen.includes(e) || hero.spellsChosenThisQuest.indexOf(e) >= spellAccess.elementLimit)
-                : [];
-              // Simpler: auto-assigned = any chosen beyond the elementLimit
+              // Auto-assigned = elements stored beyond the manual elementLimit
               const chosenBeyondLimit = hero.spellsChosenThisQuest.length > spellAccess.elementLimit
                 ? hero.spellsChosenThisQuest.slice(spellAccess.elementLimit)
                 : [];
 
               const phaseHint = hero.heroTypeId === "wizard"
-                ? `Pick 2 schools (Phase 1). After Elf picks 1, your 3rd school is auto-assigned.`
-                : `Pick 1 school from the ${selectableElements.length} remaining after Wizard's choices.`;
+                ? `Phase 1: Pick ${spellAccess.elementLimit} schools. Your 3rd school is auto-assigned after the Elf picks.`
+                : !wizardDone
+                  ? `Waiting for Wizard to finish picking (${wizardChosen.length}/${wizardManualLimit} chosen)…`
+                  : `Phase 2: Pick 1 school from those not chosen by the Wizard.`;
 
               return (
                 <>
                   <div className="card py-2 space-y-1">
                     <p className="text-xs text-parchment/60">{phaseHint}</p>
                     <p className="text-xs text-parchment/40">
-                      Chosen: {hero.spellsChosenThisQuest.length} school(s)
-                      {hero.heroTypeId === "wizard" && " (2 chosen + 1 auto-assigned)"}
+                      {hero.heroTypeId === "wizard"
+                        ? `${Math.min(hero.spellsChosenThisQuest.length, spellAccess.elementLimit)}/${spellAccess.elementLimit} chosen manually${chosenBeyondLimit.length > 0 ? " + 1 auto-assigned" : ""}`
+                        : `${hero.spellsChosenThisQuest.filter(e => !wizardChosen.includes(e)).length}/${spellAccess.elementLimit} chosen`}
                     </p>
                   </div>
 
-                  {selectableElements.map((element) => {
+                  {allElements.map((element) => {
                     const isChosen = hero.spellsChosenThisQuest.includes(element);
-                    const isAutoAssigned = chosenBeyondLimit.includes(element);
-                    const isManuallyChosen = isChosen && !isAutoAssigned;
-                    const atLimit = !isChosen && manuallyChosen.length >= spellAccess.elementLimit;
+                    const isAutoAssigned = chosenBeyondLimit.includes(element as SpellElement);
+                    // For elf: element is blocked if wizard already claimed it
+                    const isWizardClaimed = hero.heroTypeId === "elf" && wizardChosen.includes(element);
+                    // For limit check: only count elf's non-conflicting choices
+                    const validChoicesCount = hero.heroTypeId === "elf"
+                      ? hero.spellsChosenThisQuest.filter(e => !wizardChosen.includes(e)).length
+                      : hero.spellsChosenThisQuest.slice(0, spellAccess.elementLimit).length;
+                    const atLimit = !isChosen && !isWizardClaimed && validChoicesCount >= spellAccess.elementLimit;
+                    const isDisabled = atLimit || isAutoAssigned || isWizardClaimed;
                     const elementSpells = SPELLS.filter((s) => s.element === element);
+
                     return (
                       <div
                         key={element}
                         className={`card p-3 border transition-colors ${
-                          isChosen ? "border-hq-amber/50 bg-hq-amber/5" : "border-parchment/10"
+                          isWizardClaimed
+                            ? "border-parchment/10 opacity-40"
+                            : isChosen
+                              ? "border-hq-amber/50 bg-hq-amber/5"
+                              : "border-parchment/10"
                         }`}
                       >
-                        <label className={`flex items-center gap-3 ${isAutoAssigned ? "cursor-default" : atLimit ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                        <label className={`flex items-center gap-3 ${isDisabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
                           <input
                             type="checkbox"
                             checked={isChosen}
-                            disabled={atLimit || isAutoAssigned}
+                            disabled={isDisabled}
                             className="accent-hq-amber w-4 h-4 shrink-0"
                             onChange={() => toggleElement(element)}
                           />
@@ -478,7 +488,10 @@ export default function PlayerSheet() {
                             {ELEMENT_ICONS[element]} {ELEMENT_LABELS[element]}
                           </span>
                           {isAutoAssigned && (
-                            <span className="ml-1 text-xs text-parchment/40 italic">auto-assigned</span>
+                            <span className="text-xs text-parchment/40 italic">auto-assigned</span>
+                          )}
+                          {isWizardClaimed && (
+                            <span className="text-xs text-parchment/40 italic">Wizard's</span>
                           )}
                           <span className="ml-auto text-xs text-parchment/40">{elementSpells.length} spells</span>
                         </label>
@@ -493,31 +506,6 @@ export default function PlayerSheet() {
                             ))}
                           </ul>
                         )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Wizard: also show the auto-assigned element if it's not in selectableElements */}
-                  {hero.heroTypeId === "wizard" && chosenBeyondLimit.map((element) => {
-                    if (selectableElements.includes(element as SpellElement)) return null;
-                    const elementSpells = SPELLS.filter((s) => s.element === element);
-                    return (
-                      <div key={element} className="card p-3 border border-hq-amber/50 bg-hq-amber/5">
-                        <div className="flex items-center gap-3">
-                          <span className="font-bold text-sm text-hq-amber">
-                            {ELEMENT_ICONS[element]} {ELEMENT_LABELS[element]}
-                          </span>
-                          <span className="text-xs text-parchment/40 italic">auto-assigned</span>
-                          <span className="ml-auto text-xs text-parchment/40">{elementSpells.length} spells</span>
-                        </div>
-                        <ul className="mt-3 space-y-2 pl-4 border-t border-hq-amber/20 pt-3">
-                          {elementSpells.map((spell) => (
-                            <li key={spell.id}>
-                              <p className="text-sm font-semibold text-parchment">{spell.name}</p>
-                              <p className="text-xs text-parchment/50">{spell.description}</p>
-                            </li>
-                          ))}
-                        </ul>
                       </div>
                     );
                   })}

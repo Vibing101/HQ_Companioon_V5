@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { customAlphabet } from "nanoid";
 import { CampaignModel } from "../models/Campaign";
+import { HeroModel } from "../models/Hero";
 import { PartyModel } from "../models/Party";
 import { QUESTS } from "@hq/shared";
 import type { PackId } from "@hq/shared";
 import { docToJson } from "../utils/docToJson";
+import type { Server } from "socket.io";
 
 const router = Router();
 const nanoid6 = customAlphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6);
@@ -83,6 +85,15 @@ router.patch("/:id/quest-log/:questId", async (req, res) => {
       const idx = campaign.questLog.findIndex((q) => q.questId === req.params.questId);
       const next = campaign.questLog[idx + 1];
       if (next && next.status === "locked") next.status = "available";
+
+      // Reset spell selections for all heroes — new quest means new spell picks
+      const campaignId = req.params.id;
+      await HeroModel.updateMany({ campaignId }, { $set: { spellsChosenThisQuest: [] } });
+      const io = req.app.get("io") as Server;
+      const heroes = await HeroModel.find({ campaignId });
+      for (const h of heroes) {
+        io.to(`campaign:${campaignId}`).emit("state_update", { type: "HERO_UPDATED", hero: docToJson(h) });
+      }
     }
     await campaign.save();
 
