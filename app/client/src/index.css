@@ -48,4 +48,33 @@
   .badge-player {
     @apply badge bg-hq-green text-white;
   }
+
+  /* Help Guide */
+  .section-heading {
+    @apply text-hq-amber font-display text-lg border-b border-hq-brown pb-1 mb-4;
+  }
+
+  .subsection-heading {
+    @apply text-parchment font-bold text-sm uppercase tracking-wide mb-2 mt-4;
+  }
+
+  .guide-list {
+    @apply list-disc list-inside space-y-1 text-parchment/80;
+  }
+
+  .ref-table {
+    @apply w-full text-sm border-collapse;
+  }
+
+  .ref-table th {
+    @apply text-hq-amber text-xs uppercase tracking-wide text-left py-1.5 px-2 border-b border-hq-brown;
+  }
+
+  .ref-table td {
+    @apply py-1.5 px-2 border-b border-hq-brown/40 text-parchment/80;
+  }
+
+  .ref-table tbody tr:hover td {
+    @apply bg-hq-brown/30;
+  }
 }

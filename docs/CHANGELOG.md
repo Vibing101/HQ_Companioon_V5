@@ -124,6 +124,51 @@ _Update this file whenever changes are made to the codebase, configuration, or d
 
 ---
 
+## [2026-03-01] — Real-time hero updates, consumable effects, 3-phase spell selection (#15 + #16)
+
+**Category:** Bug Fix / Feature
+
+Two commit batch. Fixed all known in-session bugs and implemented the correct HeroQuest spell selection mechanic.
+
+### Commit #15 — Real-time sync, quest unlock, GM hero management
+
+#### `app/server/src/index.ts`
+- Added `app.set("io", io)` immediately after the Socket.io server is created. This exposes the `io` instance to all Express route handlers via `req.app.get("io")`, which is required for the HTTP routes below to broadcast real-time events.
+
+#### `app/server/src/routes/heroes.ts`
+- Added `HERO_CREATED` socket emit (`campaign:${campaignId}`) after `POST /` (create hero). Previously hero creation was invisible to connected clients until they refreshed.
+- Added `HERO_UPDATED` socket emit after `PATCH /:id/gold`, `POST /:id/equipment`, `DELETE /:id/equipment/:equipId`, and `POST /:id/consumables`. All inventory/gold changes from GM HTTP calls now propagate to all players in real time.
+
+#### `app/client/src/components/QuestSelector.tsx`
+- Added `isGM?: boolean` and `onUnlockQuest?: (questId: string) => void` props.
+- When `isGM` is true, locked quests show an **Unlock** button that calls `onUnlockQuest` — allowing the GM to manually unlock quests in campaigns created before the auto-unlock feature existed.
+
+#### `app/client/src/pages/GMDashboard.tsx`
+- Added `HERO_CREATED` handler in `onStateUpdate`: newly created heroes are appended to the heroes list without a page reload.
+- Added `unlockQuest(questId)` function: sends `PATCH /api/campaigns/:id/quest-log/:questId` with `{ status: "available" }`.
+- Passes `isGM={true}` and `onUnlockQuest={unlockQuest}` to `QuestSelector`.
+
+---
+
+### Commit #16 — Consumable effects, spell element system, socket join fix
+
+#### `app/shared/src/types.ts`
+- `HERO_SPELL_ACCESS` redesigned: heroes now choose **elements**, not individual spells. The `limit` field is replaced by `elementLimit` (number of elements to choose). Wizard gets `elementLimit: 2` (and ends up with 3 after auto-assign); Elf gets `elementLimit: 1`. Both have access to all 4 elements.
+- Added `ALL_SPELL_ELEMENTS: SpellElement[]` constant — used server-side to compute the set difference for auto-assignment.
+
+#### `app/server/src/socket/handlers.ts`
+- **`handleSelectSpell`**: spell limit now reads from `HERO_SPELL_ACCESS[heroTypeId].elementLimit` instead of a hardcoded map. Added Phase 3 auto-assign: when the Elf completes their 1 element pick and the Wizard has 2, the server computes the remaining element (`ALL_SPELL_ELEMENTS` minus both heroes' chosen elements) and pushes it to the Wizard's `spellsChosenThisQuest`, emitting `HERO_UPDATED` for the Wizard automatically.
+- **`handleUseItem`**: now applies consumable effects after removing the item from inventory. Matched against `GEAR_CATALOG` by name: Healing Potion restores 4 BP, Healing Herb restores 2 BP, Holy Water clears `isInShock` and sets `mindPointsCurrent` to 1 if it was 0. `isDead` flag is recomputed after any BP change.
+
+#### `app/client/src/pages/PlayerSheet.tsx`
+- Added `useEffect` to call `joinSession` on mount using `sessionStorage.getItem("campaignId")`. Without this, the socket was never added to the campaign room after a page refresh, causing all `sendCommand` calls (dice rolls, USE_ITEM) to be silently dropped.
+- Added `partyHeroes` state (fetched alongside party gold via `/api/heroes/campaign/:id`). Used by the Elf to filter out elements already chosen by the Wizard.
+- Added `HERO_UPDATED` listener for other heroes to refresh `partyHeroes` when the Wizard's spell selections change.
+- Added gold adjustment UI in the Inventory tab: a number input + **Update** button that calls `PATCH /api/heroes/:id/gold`. Party gold total is shown in the header.
+- Spell tab redesigned: element checkboxes replace the old individual spell list. Elf's available elements are filtered to exclude those already chosen by the Wizard. The Wizard's auto-assigned 4th element is displayed with a labelled badge. Phase hints are shown in context.
+
+---
+
 ## [2026-03-01] — Full one-command deploy automation
 
 **Category:** Infrastructure
