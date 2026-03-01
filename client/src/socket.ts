@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { io, Socket } from "socket.io-client";
 import type { SocketCommand } from "@hq/shared";
 
@@ -46,11 +47,11 @@ export function sendCommand(cmd: SocketCommand) {
 export function onStateUpdate(handler: (update: any) => void) {
   const s = getSocket();
   s.on("state_update", handler);
-  return () => s.off("state_update", handler);
+  return () => { s.off("state_update", handler); };
 }
 
 export function onError(handler: (err: { message: string }) => void) {
   const s = getSocket();
   s.on("error", handler);
-  return () => s.off("error", handler);
+  return () => { s.off("error", handler); };
 }
