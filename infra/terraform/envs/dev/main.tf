@@ -37,8 +37,17 @@ data "aws_ami" "amazon_linux_2" {
 
 resource "aws_security_group" "dev" {
   name        = "hq-dev-sg"
-  description = "No ingress; allow all egress"
+  description = "HTTP from Cloudflare; all egress"
   vpc_id      = data.aws_vpc.default.id
+
+  # Cloudflare proxies inbound traffic — EC2 only needs port 80
+  ingress {
+    description = "HTTP from Cloudflare proxy"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     from_port   = 0
@@ -77,17 +86,45 @@ resource "aws_instance" "dev" {
   ami           = data.aws_ami.amazon_linux_2.id
   instance_type = var.instance_type
 
-  subnet_id              = data.aws_subnets.default.ids[0]
-  vpc_security_group_ids = [aws_security_group.dev.id]
+  subnet_id                   = data.aws_subnets.default.ids[0]
+  vpc_security_group_ids      = [aws_security_group.dev.id]
+  associate_public_ip_address = true
 
   iam_instance_profile = aws_iam_instance_profile.ec2_ssm_instance_profile.name
+
+  # Install nginx and reverse-proxy port 80 → Node.js on 4000
+  # WebSocket upgrade headers are forwarded so Socket.io works correctly
+  user_data = <<-EOF
+    #!/bin/bash
+    yum install -y nginx
+    cat > /etc/nginx/conf.d/hq.conf <<'NGINX'
+    server {
+      listen 80;
+      location / {
+        proxy_pass         http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+      }
+    }
+    NGINX
+    systemctl enable nginx
+    systemctl start nginx
+  EOF
 
   tags = merge(local.tags, {
     Name = "hq-dev"
   })
 }
 
-output "dev_instance_id" {
-  description = "EC2 instance ID (use with SSM start-session --target)"
-  value       = aws_instance.dev.id
+# Elastic IP so the DNS A record never needs updating after stop/start
+resource "aws_eip" "dev" {
+  instance = aws_instance.dev.id
+  domain   = "vpc"
+
+  tags = merge(local.tags, {
+    Name = "hq-dev-eip"
+  })
 }

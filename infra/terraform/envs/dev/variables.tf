@@ -15,3 +15,20 @@ variable "instance_type" {
   type        = string
   default     = "t3.micro"
 }
+
+variable "cloudflare_account_id" {
+  description = "Cloudflare account ID (find in CF dashboard → right sidebar)"
+  type        = string
+}
+
+variable "cf_zone_name" {
+  description = "Cloudflare zone root domain"
+  type        = string
+  default     = "savvy-des.com"
+}
+
+variable "cf_pages_project_name" {
+  description = "Cloudflare Pages project name"
+  type        = string
+  default     = "hq-companion-dev"
+}
