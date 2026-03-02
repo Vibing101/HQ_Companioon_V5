@@ -10,6 +10,7 @@ import { connectDb } from "./db";
 import campaignRoutes from "./routes/campaigns";
 import sessionRoutes from "./routes/sessions";
 import heroRoutes from "./routes/heroes";
+import partyRoutes from "./routes/parties";
 import { registerSocketHandlers } from "./socket/handlers";
 import { verifyToken } from "./auth";
 
@@ -42,6 +43,7 @@ app.use(express.json());
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api", sessionRoutes);
 app.use("/api/heroes", heroRoutes);
+app.use("/api/parties", partyRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

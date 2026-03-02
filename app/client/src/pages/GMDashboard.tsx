@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { GEAR_CATALOG, ITEM_CATALOG, QUESTS, MONSTER_TYPES, resolveEffectiveRules, countHitsForHeroAttack, countBlocksForHeroDefense } from "@hq/shared";
+import { GEAR_CATALOG, ITEM_CATALOG, QUESTS, MONSTER_TYPES, resolveEffectiveRules, countHitsForHeroAttack, countBlocksForHeroDefense, getHitRuleReminder } from "@hq/shared";
 import type { CombatDieFace, EquipSlot } from "@hq/shared";
-import type { Campaign, Hero, Session } from "@hq/shared";
+import type { Campaign, Hero, Session, Party, MercenaryTypeId } from "@hq/shared";
 import { joinSession, onDiceRoll, onError, onStateUpdate, sendCommand } from "../socket";
 
 const EQUIP_GEAR = ITEM_CATALOG.filter((g) => g.equipSlot !== undefined);
@@ -20,6 +20,7 @@ export default function GMDashboard() {
   const [serverReady, setServerReady] = useState(!import.meta.env.VITE_WAKE_URL);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [party, setParty] = useState<Party | null>(null);
   const [heroes, setHeroes] = useState<Hero[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("quest");
   const [selectedQuestId, setSelectedQuestId] = useState<string>("");
@@ -27,6 +28,9 @@ export default function GMDashboard() {
   const [error, setError] = useState("");
   const [socketError, setSocketError] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [reputationDelta, setReputationDelta] = useState("1");
+  const [mercenaryType, setMercenaryType] = useState<MercenaryTypeId>("scout");
+  const [mercenaryHeroId, setMercenaryHeroId] = useState("");
 
   // Monster spawn form
   const [spawnType, setSpawnType] = useState(MONSTER_TYPES[0].id);
@@ -75,6 +79,11 @@ export default function GMDashboard() {
       if (!res.ok) throw new Error(data.error);
       setCampaign(data.campaign);
       setJoinCode(data.campaign.joinCode);
+      if (data.campaign.partyId) {
+        const pRes = await fetch(`/api/parties/${data.campaign.partyId}`);
+        const pData = await pRes.json();
+        if (pRes.ok) setParty(pData.party);
+      }
 
       // Resume the existing session so the GM can reload the page without losing state
       if (data.campaign.currentSessionId) {
@@ -118,6 +127,9 @@ export default function GMDashboard() {
       }
       if (update.type === "CAMPAIGN_UPDATED") {
         setCampaign(update.campaign);
+      }
+      if (update.type === "PARTY_UPDATED") {
+        setParty(update.party);
       }
     });
     return unsub;
@@ -225,6 +237,19 @@ export default function GMDashboard() {
     const item = CONSUMABLE_GEAR.find((g) => g.id === gmConsumableId);
     if (!item) return;
     sendCommand({ type: "ADD_CONSUMABLE", heroId: managedHeroId, name: item.name, effect: item.description, quantity: 1 });
+  }
+
+  function adjustReputation() {
+    sendCommand({ type: "ADJUST_REPUTATION", amount: Number(reputationDelta || "0") });
+  }
+
+  function unlockMercenary() {
+    sendCommand({ type: "UNLOCK_MERCENARY_TYPE", mercenaryTypeId: mercenaryType });
+  }
+
+  function hireMercenary() {
+    if (!mercenaryHeroId) return;
+    sendCommand({ type: "HIRE_MERCENARY", heroId: mercenaryHeroId, mercenaryTypeId: mercenaryType, payWith: "gold" });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -363,6 +388,18 @@ export default function GMDashboard() {
 
                 {managedHero && (
                   <div className="space-y-5">
+                    {session?.rulesSnapshot.enabledSystems.disguises && (
+                      <div>
+                        <p className="text-xs text-parchment/60 mb-2 uppercase tracking-wider">Disguise</p>
+                        <button
+                          className="btn-secondary w-full"
+                          onClick={() => sendCommand({ type: "SET_HERO_DISGUISE", heroId: managedHero.id, isDisguised: !managedHero.statusFlags.isDisguised })}
+                        >
+                          {managedHero.statusFlags.isDisguised ? "Break Disguise" : "Set Disguise"}
+                        </button>
+                      </div>
+                    )}
+
                     {/* Gold */}
                     <div>
                       <p className="text-xs text-parchment/60 mb-2 uppercase tracking-wider">
@@ -483,6 +520,43 @@ export default function GMDashboard() {
                 )}
               </div>
             )}
+
+            {session && session.rulesSnapshot.enabledSystems.reputationTokens && (
+              <div className="card space-y-3">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Reputation</h2>
+                <p className="text-sm text-parchment/70">Tokens: <span className="text-hq-amber">{party?.reputationTokens ?? 0}</span></p>
+                <div className="flex gap-2">
+                  <input className="input flex-1" value={reputationDelta} onChange={(e) => setReputationDelta(e.target.value)} type="number" />
+                  <button className="btn-secondary" onClick={adjustReputation}>Adjust</button>
+                </div>
+              </div>
+            )}
+
+            {session && session.rulesSnapshot.enabledSystems.mercenaries && (
+              <div className="card space-y-3">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Mercenaries</h2>
+                <select className="input" value={mercenaryType} onChange={(e) => setMercenaryType(e.target.value as MercenaryTypeId)}>
+                  <option value="scout">Scout</option>
+                  <option value="guardian">Guardian</option>
+                  <option value="crossbowman">Crossbowman</option>
+                  <option value="swordsman">Swordsman</option>
+                </select>
+                <div className="flex gap-2">
+                  <button className="btn-secondary flex-1" onClick={unlockMercenary}>Unlock Type</button>
+                  <button className="btn-secondary flex-1" onClick={hireMercenary} disabled={!mercenaryHeroId}>Hire</button>
+                </div>
+                <select className="input" value={mercenaryHeroId} onChange={(e) => setMercenaryHeroId(e.target.value)}>
+                  <option value="">Select hiring hero...</option>
+                  {heroes.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                </select>
+                {(party?.mercenaries ?? []).map((m) => (
+                  <div key={m.id} className="flex items-center gap-2 text-sm text-parchment">
+                    <span className="flex-1">{m.name} ({m.bodyPointsCurrent}/{m.bodyPointsMax} BP)</span>
+                    <button className="text-xs text-hq-red hover:underline" onClick={() => sendCommand({ type: "DISMISS_MERCENARY", mercenaryId: m.id })}>Dismiss</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -520,6 +594,23 @@ export default function GMDashboard() {
             </div>
 
             <MonsterTracker monsters={session.monsters} sessionId={session.id} isGM={true} />
+            {session.rulesSnapshot.enabledSystems.etherealMonsters && (
+              <div className="card space-y-2">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Ethereal Reminders</h2>
+                <p className="text-xs text-parchment/60">{getHitRuleReminder(true, "weapon")}</p>
+                {session.monsters.map((m) => (
+                  <div key={m.id} className="flex items-center gap-2 text-sm">
+                    <span className="flex-1 text-parchment">{m.label}</span>
+                    <button
+                      className="btn-secondary text-xs px-2 py-1"
+                      onClick={() => sendCommand({ type: "SET_MONSTER_STATUS", sessionId: session.id, monsterId: m.id, status: "isEthereal", value: !m.statusFlags?.isEthereal })}
+                    >
+                      {m.statusFlags?.isEthereal ? "Unset Ethereal" : "Set Ethereal"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -10,7 +10,10 @@ export type EnabledSystem =
   | "disguises"
   | "mercenaries"
   | "alchemy"
-  | "mindShock";
+  | "mindShock"
+  | "etherealMonsters"
+  | "undergroundMarket"
+  | "hideouts";
 
 export type HeroTypeId = "barbarian" | "dwarf" | "elf" | "wizard" | "knight";
 
@@ -36,6 +39,9 @@ export const PACKS: Record<PackId, PackDefinition> = {
       mercenaries: false,
       alchemy: false,
       mindShock: false,
+      etherealMonsters: false,
+      undergroundMarket: false,
+      hideouts: false,
     },
     constraints: { uniqueHeroesOnly: true, maxPartySize: 4 },
   },
@@ -48,6 +54,9 @@ export const PACKS: Record<PackId, PackDefinition> = {
       mercenaries: true,
       alchemy: true,
       mindShock: true,
+      etherealMonsters: true,
+      undergroundMarket: true,
+      hideouts: true,
     },
     constraints: { uniqueHeroesOnly: true, maxPartySize: 4 },
   },
@@ -93,6 +102,9 @@ const SYSTEM_KEYS: EnabledSystem[] = [
   "mercenaries",
   "alchemy",
   "mindShock",
+  "etherealMonsters",
+  "undergroundMarket",
+  "hideouts",
 ];
 
 export function resolveEffectiveRules(enabledPacks: PackId[], quest?: Quest): EffectiveRules {
@@ -218,6 +230,23 @@ export type ArtifactInstance = {
   artifactId: string;
 };
 
+export type MercenaryTypeId = "scout" | "guardian" | "crossbowman" | "swordsman";
+
+export type MercenaryInstance = {
+  id: string;
+  mercenaryTypeId: MercenaryTypeId;
+  name: string;
+  bodyPointsCurrent: number;
+  bodyPointsMax: number;
+  hiredByHeroId: string;
+};
+
+export type AlchemyState = {
+  reagents: string[];
+  potions: string[];
+  reagentKitUsesRemaining?: number;
+};
+
 // ─── Hero ─────────────────────────────────────────────────────────────────────
 
 export type Hero = {
@@ -240,12 +269,16 @@ export type Hero = {
   inventory: InventoryItem[];
   consumables: ConsumableItem[];
   artifacts: ArtifactInstance[];
+  alchemy?: AlchemyState;
+  hideoutRestUsedThisQuest?: boolean;
   spellsChosenThisQuest: string[];
 
   statusFlags: {
     isDead: boolean;
     isInShock: boolean;
     isDisguised?: boolean;
+    hasDisguiseToken?: boolean;
+    disguiseBrokenReason?: string;
   };
 };
 
@@ -272,6 +305,8 @@ export type Party = {
   campaignId: string;
   heroIds: string[];
   reputationTokens: number;
+  unlockedMercenaryTypes: MercenaryTypeId[];
+  mercenaries: MercenaryInstance[];
 };
 
 // ─── Socket Commands ──────────────────────────────────────────────────────────
@@ -379,6 +414,84 @@ export type SetQuestStatusCommand = {
   status: "locked" | "available" | "completed";
 };
 
+export type SetHeroDisguiseCommand = {
+  type: "SET_HERO_DISGUISE";
+  heroId: string;
+  isDisguised: boolean;
+};
+
+export type AdjustReputationCommand = {
+  type: "ADJUST_REPUTATION";
+  amount: number;
+};
+
+export type UnlockMercenaryTypeCommand = {
+  type: "UNLOCK_MERCENARY_TYPE";
+  mercenaryTypeId: MercenaryTypeId;
+};
+
+export type HireMercenaryCommand = {
+  type: "HIRE_MERCENARY";
+  heroId: string;
+  mercenaryTypeId: MercenaryTypeId;
+  payWith: "gold" | "reputation";
+};
+
+export type DismissMercenaryCommand = {
+  type: "DISMISS_MERCENARY";
+  mercenaryId: string;
+};
+
+export type AdjustMercenaryPointsCommand = {
+  type: "ADJUST_MERCENARY_POINTS";
+  mercenaryId: string;
+  delta: number;
+};
+
+export type AddReagentCommand = {
+  type: "ADD_REAGENT";
+  heroId: string;
+  reagentId: string;
+};
+
+export type RemoveReagentCommand = {
+  type: "REMOVE_REAGENT";
+  heroId: string;
+  reagentId: string;
+};
+
+export type CraftPotionCommand = {
+  type: "CRAFT_POTION";
+  heroId: string;
+  potionId: string;
+  consumeReagentIds: string[];
+  useReagentKit?: boolean;
+};
+
+export type DrawRandomAlchemyPotionCommand = {
+  type: "DRAW_RANDOM_ALCHEMY_POTION";
+  heroId: string;
+};
+
+export type SetMonsterStatusCommand = {
+  type: "SET_MONSTER_STATUS";
+  sessionId: string;
+  monsterId: string;
+  status: "isEthereal" | "isSmokeBombed";
+  value: boolean;
+};
+
+export type BuyUndergroundItemCommand = {
+  type: "BUY_UNDERGROUND_ITEM";
+  heroId: string;
+  itemId: string;
+};
+
+export type UseHideoutRestCommand = {
+  type: "USE_HIDEOUT_REST";
+  heroId: string;
+};
+
 export type SocketCommand =
   | AdjustPointsCommand
   | SelectHeroCommand
@@ -394,7 +507,20 @@ export type SocketCommand =
   | AddConsumableCommand
   | StartSessionCommand
   | EndSessionCommand
-  | SetQuestStatusCommand;
+  | SetQuestStatusCommand
+  | SetHeroDisguiseCommand
+  | AdjustReputationCommand
+  | UnlockMercenaryTypeCommand
+  | HireMercenaryCommand
+  | DismissMercenaryCommand
+  | AdjustMercenaryPointsCommand
+  | AddReagentCommand
+  | RemoveReagentCommand
+  | CraftPotionCommand
+  | DrawRandomAlchemyPotionCommand
+  | SetMonsterStatusCommand
+  | BuyUndergroundItemCommand
+  | UseHideoutRestCommand;
 
 // ─── Hero Base Stats ──────────────────────────────────────────────────────────
 
@@ -489,6 +615,26 @@ import { ARTIFACT_CATALOG as _ARTIFACTS } from "./data/artifacts";
 export { _GEAR as GEAR_CATALOG, _ARTIFACTS as ARTIFACT_CATALOG };
 
 export const ITEM_CATALOG: ItemDefinition[] = [..._GEAR, ..._ARTIFACTS];
+
+export type DiceSourceType = "weapon" | "spell" | "artifact";
+
+export function resolveEffectiveHeroDice(hero: Hero): { attack: number; defend: number; note?: string } {
+  if (hero.statusFlags.isInShock) {
+    return { attack: 1, defend: 2, note: "Mind Shock active: equipment bonuses ignored" };
+  }
+  const equippedItems = Object.values(hero.equipped ?? {})
+    .map((e) => ITEM_CATALOG.find((i) => i.id === e.itemId))
+    .filter(Boolean);
+  const attackBonus = equippedItems.reduce((sum, item) => sum + (item?.attackDiceBonus ?? 0), 0);
+  const defendBonus = equippedItems.reduce((sum, item) => sum + (item?.defendDiceBonus ?? 0), 0);
+  return { attack: hero.attackDice + attackBonus, defend: hero.defendDice + defendBonus };
+}
+
+export function getHitRuleReminder(targetIsEthereal: boolean, sourceType: DiceSourceType): string {
+  if (!targetIsEthereal) return "Normal hit resolution: skulls hit.";
+  if (sourceType === "weapon") return "Ethereal target: roll black shields to hit.";
+  return "Ethereal target: spell/artifact attacks resolve normally.";
+}
 
 // ─── Equipment Legality ───────────────────────────────────────────────────────
 

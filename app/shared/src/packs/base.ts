@@ -9,6 +9,9 @@ export const BASE_PACK: PackDefinition = {
     mercenaries: false,
     alchemy: false,
     mindShock: false,
+    etherealMonsters: false,
+    undergroundMarket: false,
+    hideouts: false,
   },
   constraints: { uniqueHeroesOnly: true, maxPartySize: 4 },
 };

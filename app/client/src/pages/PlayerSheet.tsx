@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { Hero } from "@hq/shared";
-import { ALL_SPELL_ELEMENTS, GEAR_CATALOG, ITEM_CATALOG, HERO_SPELL_ACCESS, SPELLS, rollCombatDice, countHitsForHeroAttack, countBlocksForHeroDefense } from "@hq/shared";
+import { GEAR_CATALOG, ITEM_CATALOG, HERO_SPELL_ACCESS, SPELLS, rollCombatDice, countHitsForHeroAttack, countBlocksForHeroDefense, resolveEffectiveHeroDice } from "@hq/shared";
 import type { EquipSlot } from "@hq/shared";
 import type { SpellElement } from "@hq/shared";
+import type { EffectiveRules, Party } from "@hq/shared";
 import { joinSession, onDiceRoll, onError, onStateUpdate, sendCommand } from "../socket";
 import StatAdjuster from "../components/StatAdjuster";
 
@@ -38,6 +39,8 @@ export default function PlayerSheet() {
   const [hero, setHero] = useState<Hero | null>(null);
   const [partyGold, setPartyGold] = useState<number | null>(null);
   const [partyHeroes, setPartyHeroes] = useState<Hero[]>([]);
+  const [party, setParty] = useState<Party | null>(null);
+  const [sessionRules, setSessionRules] = useState<EffectiveRules | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [socketError, setSocketError] = useState("");
@@ -53,6 +56,8 @@ export default function PlayerSheet() {
 
   // Gold adjustment
   const [goldInput, setGoldInput] = useState("");
+  const [reagentInput, setReagentInput] = useState("");
+  const [potionInput, setPotionInput] = useState("");
 
   function fetchPartyData() {
     const cid = sessionStorage.getItem("campaignId");
@@ -65,6 +70,30 @@ export default function PlayerSheet() {
         setPartyGold(heroes.reduce((s: number, h: any) => s + (h.gold ?? 0), 0));
       })
       .catch(() => {/* non-critical */});
+  }
+
+  function fetchSessionRulesAndParty() {
+    const cid = sessionStorage.getItem("campaignId");
+    if (!cid) return;
+    fetch(`/api/campaigns/${cid}`)
+      .then((r) => r.json())
+      .then(async (d) => {
+        const campaign = d.campaign;
+        if (!campaign) return;
+        if (campaign.partyId) {
+          const pRes = await fetch(`/api/parties/${campaign.partyId}`);
+          const pData = await pRes.json();
+          if (pData.party) setParty(pData.party);
+        }
+        if (campaign.currentSessionId) {
+          const sRes = await fetch(`/api/sessions/${campaign.currentSessionId}`);
+          const sData = await sRes.json();
+          if (sData.session?.rulesSnapshot) setSessionRules(sData.session.rulesSnapshot);
+        } else {
+          setSessionRules(null);
+        }
+      })
+      .catch(() => undefined);
   }
 
   // Join campaign socket room so real-time events work even after a page refresh
@@ -84,6 +113,7 @@ export default function PlayerSheet() {
         if (data.error) throw new Error(data.error);
         setHero(data.hero);
         fetchPartyData();
+        fetchSessionRulesAndParty();
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -98,6 +128,10 @@ export default function PlayerSheet() {
       // Another hero updated (e.g. wizard auto-assigned after elf picks) — refresh party data
       if (update.type === "HERO_UPDATED" && update.hero.id !== heroId) {
         fetchPartyData();
+      }
+      if (update.type === "PARTY_UPDATED") setParty(update.party);
+      if (update.type === "SESSION_STARTED" || update.type === "SESSION_ENDED" || update.type === "SESSION_UPDATED") {
+        fetchSessionRulesAndParty();
       }
     });
     return unsub;
@@ -152,9 +186,9 @@ export default function PlayerSheet() {
 
   function rollDice(rollType: "attack" | "defense") {
     if (!hero) return;
-    const equippedItems = Object.values(hero.equipped ?? {}).map((e) => ITEM_CATALOG.find((i) => i.id === e.itemId));
-    const effectiveAttack = hero.attackDice + equippedItems.reduce((s, e) => s + (e?.attackDiceBonus ?? 0), 0);
-    const effectiveDefend = hero.defendDice + equippedItems.reduce((s, e) => s + (e?.defendDiceBonus ?? 0), 0);
+    const pools = resolveEffectiveHeroDice(hero);
+    const effectiveAttack = pools.attack;
+    const effectiveDefend = pools.defend;
     const diceCount = rollType === "attack" ? effectiveAttack : effectiveDefend;
     const results = rollCombatDice(diceCount);
     sendCommand({ type: "ROLL_DICE", rollType, diceCount, results, rollerName: hero.name });
@@ -177,13 +211,15 @@ export default function PlayerSheet() {
   if (loading) return <div className="flex items-center justify-center h-screen">Loading…</div>;
   if (error) return <div className="flex items-center justify-center h-screen text-hq-red">{error}</div>;
   if (!hero) return null;
+  const heroCmdId = hero.id;
 
   const icon = HERO_ICONS[hero.heroTypeId] ?? "🧝";
   const spellAccess = HERO_SPELL_ACCESS[hero.heroTypeId];
 
-  const equippedItems = Object.values(hero.equipped ?? {}).map((e) => ITEM_CATALOG.find((i) => i.id === e.itemId));
-  const effectiveAttack = hero.attackDice + equippedItems.reduce((s, e) => s + (e?.attackDiceBonus ?? 0), 0);
-  const effectiveDefend = hero.defendDice + equippedItems.reduce((s, e) => s + (e?.defendDiceBonus ?? 0), 0);
+  const pools = resolveEffectiveHeroDice(hero);
+  const effectiveAttack = pools.attack;
+  const effectiveDefend = pools.defend;
+  const systems = sessionRules?.enabledSystems;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -258,6 +294,7 @@ export default function PlayerSheet() {
             <div className="card space-y-3">
               <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Roll Dice</h2>
               <p className="text-xs text-parchment/50">Effective: {effectiveAttack} attack 🎲, {effectiveDefend} defense 🎲 (includes equipment bonuses)</p>
+              {pools.note && <p className="text-xs text-hq-amber">{pools.note}</p>}
               <div className="flex gap-3">
                 <button
                   className="btn-primary flex-1"
@@ -280,6 +317,65 @@ export default function PlayerSheet() {
 
         {tab === "inventory" && (
           <div className="space-y-4">
+            {systems?.disguises && (
+              <div className="card space-y-3">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Disguise</h2>
+                <p className="text-xs text-parchment/60">While disguised: only disguise-legal weapons, helmet/bracers armor, and no spells.</p>
+                <button className="btn-secondary w-full" onClick={() => sendCommand({ type: "SET_HERO_DISGUISE", heroId: heroCmdId, isDisguised: !hero.statusFlags.isDisguised })}>
+                  {hero.statusFlags.isDisguised ? "Break Disguise" : "Take Disguise Token"}
+                </button>
+              </div>
+            )}
+
+            {systems?.alchemy && (
+              <div className="card space-y-3">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Alchemy</h2>
+                <p className="text-xs text-parchment/60">Reagents: {(hero.alchemy?.reagents ?? []).join(", ") || "none"}</p>
+                <p className="text-xs text-parchment/60">Potions: {(hero.alchemy?.potions ?? []).join(", ") || "none"}</p>
+                <p className="text-xs text-parchment/60">Reagent kit uses: {hero.alchemy?.reagentKitUsesRemaining ?? 0}</p>
+                <div className="flex gap-2">
+                  <input className="input flex-1" placeholder="Reagent id" value={reagentInput} onChange={(e) => setReagentInput(e.target.value)} />
+                  <button className="btn-secondary" onClick={() => reagentInput && sendCommand({ type: "ADD_REAGENT", heroId: heroCmdId, reagentId: reagentInput })}>Add</button>
+                </div>
+                <div className="flex gap-2">
+                  <input className="input flex-1" placeholder="Potion id" value={potionInput} onChange={(e) => setPotionInput(e.target.value)} />
+                  <button className="btn-secondary" onClick={() => potionInput && sendCommand({ type: "CRAFT_POTION", heroId: heroCmdId, potionId: potionInput, consumeReagentIds: [], useReagentKit: false })}>Craft</button>
+                </div>
+                <button className="btn-secondary w-full" onClick={() => sendCommand({ type: "DRAW_RANDOM_ALCHEMY_POTION", heroId: heroCmdId })}>Draw Random Alchemy Potion</button>
+              </div>
+            )}
+
+            {systems?.hideouts && (
+              <div className="card space-y-3">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Hideout Rest</h2>
+                <p className="text-xs text-parchment/60">Once per quest per hero.</p>
+                <button
+                  className="btn-secondary w-full"
+                  onClick={() => sendCommand({ type: "USE_HIDEOUT_REST", heroId: heroCmdId })}
+                  disabled={!!hero.hideoutRestUsedThisQuest}
+                >
+                  {hero.hideoutRestUsedThisQuest ? "Already Used This Quest" : "Use Hideout Rest"}
+                </button>
+              </div>
+            )}
+
+            {systems?.undergroundMarket && (
+              <div className="card space-y-3">
+                <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Underground Market</h2>
+                {ITEM_CATALOG.filter((i) => ["caltrops", "smoke_bomb", "reagent_kit"].includes(i.id)).map((item) => (
+                  <button key={item.id} className="btn-secondary w-full" onClick={() => sendCommand({ type: "BUY_UNDERGROUND_ITEM", heroId: heroCmdId, itemId: item.id })}>
+                    Buy {item.name} ({item.costGold}g)
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {systems?.reputationTokens && party && (
+              <div className="card">
+                <p className="text-xs text-parchment/60">Party Reputation Tokens: {party.reputationTokens}</p>
+              </div>
+            )}
+
             <div className="card space-y-3">
               <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Gold</h2>
               <p className="text-parchment/70 text-sm">

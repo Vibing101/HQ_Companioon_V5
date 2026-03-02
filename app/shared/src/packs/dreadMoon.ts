@@ -9,6 +9,9 @@ export const DREAD_MOON_PACK: PackDefinition = {
     mercenaries: true,
     alchemy: true,
     mindShock: true,
+    etherealMonsters: true,
+    undergroundMarket: true,
+    hideouts: true,
   },
   constraints: { uniqueHeroesOnly: true, maxPartySize: 4 },
 };

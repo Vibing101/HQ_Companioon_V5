@@ -30,6 +30,15 @@ const ArtifactInstanceSchema = new Schema(
   { _id: false }
 );
 
+const AlchemyStateSchema = new Schema(
+  {
+    reagents: [String],
+    potions: [String],
+    reagentKitUsesRemaining: Number,
+  },
+  { _id: false }
+);
+
 const HeroSchema = new Schema<HeroDoc>({
   heroTypeId: { type: String, required: true },
   name: { type: String, required: true },
@@ -54,12 +63,16 @@ const HeroSchema = new Schema<HeroDoc>({
   inventory: { type: [InventoryItemSchema], default: [] },
   consumables: { type: [ConsumableItemSchema], default: [] },
   artifacts: { type: [ArtifactInstanceSchema], default: [] },
+  alchemy: { type: AlchemyStateSchema, default: undefined },
+  hideoutRestUsedThisQuest: { type: Boolean, default: false },
   spellsChosenThisQuest: [String],
 
   statusFlags: {
     isDead: { type: Boolean, default: false },
     isInShock: { type: Boolean, default: false },
     isDisguised: { type: Boolean, default: false },
+    hasDisguiseToken: { type: Boolean, default: false },
+    disguiseBrokenReason: { type: String, default: undefined },
   },
 });
 

@@ -29,6 +29,33 @@ export function ensureHeroStateShape(hero: HeroDoc): boolean {
     changed = true;
   }
 
+  if (!h.statusFlags || typeof h.statusFlags !== "object") {
+    h.statusFlags = { isDead: false, isInShock: false, isDisguised: false };
+    changed = true;
+  }
+  if (typeof h.statusFlags.hasDisguiseToken !== "boolean") {
+    h.statusFlags.hasDisguiseToken = false;
+    changed = true;
+  }
+
+  if (typeof h.hideoutRestUsedThisQuest !== "boolean") {
+    h.hideoutRestUsedThisQuest = false;
+    changed = true;
+  }
+
+  if (!h.alchemy || typeof h.alchemy !== "object") {
+    h.alchemy = { reagents: [], potions: [], reagentKitUsesRemaining: undefined };
+    changed = true;
+  }
+  if (!Array.isArray(h.alchemy.reagents)) {
+    h.alchemy.reagents = [];
+    changed = true;
+  }
+  if (!Array.isArray(h.alchemy.potions)) {
+    h.alchemy.potions = [];
+    changed = true;
+  }
+
   h.consumables = h.consumables.map((entry: any) => {
     const quantity = typeof entry.quantity === "number" && entry.quantity > 0 ? entry.quantity : 1;
     const instanceId = typeof entry.instanceId === "string" && entry.instanceId ? entry.instanceId :
@@ -67,6 +94,8 @@ export function ensureHeroStateShape(hero: HeroDoc): boolean {
     hero.markModified("inventory");
     hero.markModified("consumables");
     hero.markModified("artifacts");
+    hero.markModified("statusFlags");
+    hero.markModified("alchemy");
   }
 
   return changed;

@@ -20,7 +20,13 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "name and enabledPacks are required" });
     }
 
-    const party = await PartyModel.create({ campaignId: "pending", heroIds: [], reputationTokens: 0 });
+    const party = await PartyModel.create({
+      campaignId: "pending",
+      heroIds: [],
+      reputationTokens: 0,
+      unlockedMercenaryTypes: [],
+      mercenaries: [],
+    });
 
     const questLog = QUESTS.filter((q) => enabledPacks.includes(q.packId)).map((q, i) => ({
       questId: q.id,

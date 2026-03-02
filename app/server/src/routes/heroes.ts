@@ -56,8 +56,10 @@ router.post("/", requireToken(["player"]), async (req, res) => {
       inventory: [],
       consumables: [],
       artifacts: [],
+      alchemy: { reagents: [], potions: [], reagentKitUsesRemaining: undefined },
+      hideoutRestUsedThisQuest: false,
       spellsChosenThisQuest: [],
-      statusFlags: { isDead: false, isInShock: false, isDisguised: false },
+      statusFlags: { isDead: false, isInShock: false, isDisguised: false, hasDisguiseToken: false },
     });
 
     if (partyId) {
