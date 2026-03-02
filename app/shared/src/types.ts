@@ -323,7 +323,8 @@ export type AdjustPointsCommand = {
 export type SelectHeroCommand = {
   type: "SELECT_HERO";
   sessionId: string;
-  playerId: string;
+  // Legacy optional field: server derives identity from socket auth.
+  playerId?: string;
   heroTypeId: HeroTypeId;
   heroName: string;
 };

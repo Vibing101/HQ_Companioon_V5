@@ -49,6 +49,11 @@ export default function PlayerSheet() {
   const [reagentInput, setReagentInput] = useState("");
   const [potionInput, setPotionInput] = useState("");
 
+  function setPartyHeroesAndGold(nextHeroes: Hero[]) {
+    setPartyHeroes(nextHeroes);
+    setPartyGold(nextHeroes.reduce((sum, h) => sum + (h.gold ?? 0), 0));
+  }
+
   function fetchPartyData() {
     const cid = sessionStorage.getItem("campaignId");
     if (!cid) return;
@@ -56,8 +61,7 @@ export default function PlayerSheet() {
       .then((r) => r.json())
       .then((d) => {
         const heroes = d.heroes ?? [];
-        setPartyHeroes(heroes);
-        setPartyGold(heroes.reduce((s: number, h: any) => s + (h.gold ?? 0), 0));
+        setPartyHeroesAndGold(heroes);
       })
       .catch(() => {/* non-critical */});
   }
@@ -112,24 +116,40 @@ export default function PlayerSheet() {
   useEffect(() => {
     const unsub = onStateUpdate((update) => {
       if (update.type === "SYNC_SNAPSHOT" && update.snapshot) {
-        const snapHero = (update.snapshot.heroes ?? []).find((h: Hero) => h.id === heroId);
+        const snapshotHeroes = update.snapshot.heroes ?? [];
+        const snapHero = snapshotHeroes.find((h: Hero) => h.id === heroId);
         if (snapHero) setHero(snapHero);
         if (update.snapshot.party) setParty(update.snapshot.party);
         if (update.snapshot.session?.rulesSnapshot) setSessionRules(update.snapshot.session.rulesSnapshot);
-        setPartyHeroes(update.snapshot.heroes ?? []);
+        if (!update.snapshot.session) setSessionRules(null);
+        setPartyHeroesAndGold(snapshotHeroes);
         return;
       }
-      if (update.type === "HERO_UPDATED" && update.hero.id === heroId) {
-        setHero(update.hero);
-        fetchPartyData();
+      if (update.type === "HERO_UPDATED") {
+        if (update.hero.id === heroId) setHero(update.hero);
+        setPartyHeroes((prev) => {
+          const existing = prev.find((h) => h.id === update.hero.id);
+          const next = existing
+            ? prev.map((h) => (h.id === update.hero.id ? update.hero : h))
+            : [...prev, update.hero];
+          setPartyGold(next.reduce((sum, h) => sum + (h.gold ?? 0), 0));
+          return next;
+        });
       }
-      // Another hero updated (e.g. wizard auto-assigned after elf picks) — refresh party data
-      if (update.type === "HERO_UPDATED" && update.hero.id !== heroId) {
-        fetchPartyData();
+      if (update.type === "HERO_CREATED") {
+        setPartyHeroes((prev) => {
+          if (prev.some((h) => h.id === update.hero.id)) return prev;
+          const next = [...prev, update.hero];
+          setPartyGold(next.reduce((sum, h) => sum + (h.gold ?? 0), 0));
+          return next;
+        });
       }
       if (update.type === "PARTY_UPDATED") setParty(update.party);
-      if (update.type === "SESSION_STARTED" || update.type === "SESSION_ENDED" || update.type === "SESSION_UPDATED") {
-        fetchSessionRulesAndParty();
+      if ((update.type === "SESSION_STARTED" || update.type === "SESSION_UPDATED") && update.session?.rulesSnapshot) {
+        setSessionRules(update.session.rulesSnapshot);
+      }
+      if (update.type === "SESSION_ENDED") {
+        setSessionRules(null);
       }
     });
     return unsub;
