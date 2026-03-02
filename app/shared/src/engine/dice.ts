@@ -32,3 +32,23 @@ export function countBlocksForHeroDefense(faces: CombatDieFace[]): number {
 export function countBlocksForMonsterDefense(faces: CombatDieFace[]): number {
   return faces.filter((f) => f === "blackShield").length;
 }
+
+export function combatFaceToIcon(face: CombatDieFace): string {
+  if (face === "skull") return "💀";
+  if (face === "whiteShield") return "🛡️";
+  return "⬛";
+}
+
+export function formatDiceRollSummary(
+  rollType: "attack" | "defense",
+  rollerName: string,
+  faces: CombatDieFace[],
+): string {
+  const icons = faces.map(combatFaceToIcon).join(" ");
+  if (rollType === "attack") {
+    const hits = countHitsForHeroAttack(faces);
+    return `${rollerName} attacked: ${icons} — ${hits} hit(s)`;
+  }
+  const blocks = countBlocksForHeroDefense(faces);
+  return `${rollerName} defended: ${icons} — ${blocks} block(s)`;
+}

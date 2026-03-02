@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { io, Socket } from "socket.io-client";
-import type { SocketCommand } from "@hq/shared";
+import type { SocketCommand, CombatDieFace } from "@hq/shared";
 import { getStoredToken } from "./store/authStore";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? "http://localhost:4000";
@@ -71,7 +71,7 @@ export function onError(handler: (err: { message: string }) => void) {
   return () => { s.off("error", handler); };
 }
 
-export function onDiceRoll(handler: (roll: { rollType: string; diceCount: number; results: string[]; rollerName: string }) => void) {
+export function onDiceRoll(handler: (roll: { rollType: "attack" | "defense"; diceCount: number; results: CombatDieFace[]; rollerName: string }) => void) {
   const s = getSocket();
   s.on("dice_roll", handler);
   return () => { s.off("dice_roll", handler); };

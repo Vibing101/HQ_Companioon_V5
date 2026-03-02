@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { Hero } from "@hq/shared";
-import { ITEM_CATALOG, HERO_SPELL_ACCESS, SPELLS, rollCombatDice, countHitsForHeroAttack, countBlocksForHeroDefense, resolveEffectiveHeroDice } from "@hq/shared";
+import { ITEM_CATALOG, HERO_SPELL_ACCESS, SPELLS, rollCombatDice, formatDiceRollSummary, resolveEffectiveHeroDice } from "@hq/shared";
 import type { EquipSlot } from "@hq/shared";
 import type { SpellElement } from "@hq/shared";
 import type { EffectiveRules, Party } from "@hq/shared";
@@ -163,13 +163,7 @@ export default function PlayerSheet() {
   useEffect(() => {
     const unsub = onDiceRoll((roll) => {
       const faces = roll.results as import("@hq/shared").CombatDieFace[];
-      const hits = countHitsForHeroAttack(faces);
-      const blocks = countBlocksForHeroDefense(faces);
-      const icons = faces.map((f) => f === "skull" ? "💀" : f === "whiteShield" ? "🛡️" : "⬛").join(" ");
-      const msg = roll.rollType === "attack"
-        ? `${roll.rollerName} attacked: ${icons} — ${hits} hit(s)`
-        : `${roll.rollerName} defended: ${icons} — ${blocks} block(s)`;
-      setDiceToast(msg);
+      setDiceToast(formatDiceRollSummary(roll.rollType, roll.rollerName, faces));
       if (toastTimer.current) clearTimeout(toastTimer.current);
       toastTimer.current = setTimeout(() => setDiceToast(null), 5000);
     });
@@ -218,6 +212,10 @@ export default function PlayerSheet() {
   const effectiveAttack = pools.attack;
   const effectiveDefend = pools.defend;
   const systems = sessionRules?.enabledSystems;
+  const attackDelta = effectiveAttack - hero.attackDice;
+  const defendDelta = effectiveDefend - hero.defendDice;
+  const attackDeltaLabel = attackDelta > 0 ? `+${attackDelta}` : `${attackDelta}`;
+  const defendDeltaLabel = defendDelta > 0 ? `+${defendDelta}` : `${defendDelta}`;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -234,8 +232,9 @@ export default function PlayerSheet() {
               Resync
             </button>
             <p>💰 Mine: {hero.gold}{partyGold !== null && <span className="text-parchment/40"> | Party: {partyGold}</span>}</p>
-            <p>⚔️ {effectiveAttack}🎲 ATK{effectiveAttack !== hero.attackDice && <span className="text-hq-amber"> (+{effectiveAttack - hero.attackDice})</span>}</p>
-            <p>🛡️ {effectiveDefend}🎲 DEF{effectiveDefend !== hero.defendDice && <span className="text-hq-amber"> (+{effectiveDefend - hero.defendDice})</span>}</p>
+            <p>⚔️ {effectiveAttack}🎲 ATK{attackDelta !== 0 && <span className="text-hq-amber"> ({attackDeltaLabel})</span>}</p>
+            <p>🛡️ {effectiveDefend}🎲 DEF{defendDelta !== 0 && <span className="text-hq-amber"> ({defendDeltaLabel})</span>}</p>
+            {pools.note && <p className="text-[11px] text-hq-amber/90">{pools.note}</p>}
           </div>
         </div>
 

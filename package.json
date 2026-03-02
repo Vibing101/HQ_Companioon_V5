@@ -11,7 +11,8 @@
     "dev": "npm run build --workspace=@hq/shared && concurrently \"npm run dev --workspace=@hq/server\" \"npm run dev --workspace=@hq/client\"",
     "build": "npm run build --workspace=@hq/shared && npm run build --workspace=@hq/server && npm run build --workspace=@hq/client",
     "install:all": "npm install",
-    "smoke:can-equip": "npm run build --workspace=@hq/shared && node scripts/can-equip-smoke.cjs"
+    "smoke:can-equip": "npm run build --workspace=@hq/shared && node scripts/can-equip-smoke.cjs",
+    "smoke:dice": "npm run build --workspace=@hq/shared && node scripts/dice-smoke.cjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
