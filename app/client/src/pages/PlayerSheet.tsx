@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { Hero } from "@hq/shared";
-import { ALL_SPELL_ELEMENTS, GEAR_CATALOG, HERO_SPELL_ACCESS, SPELLS, rollCombatDice, countHitsForHeroAttack, countBlocksForHeroDefense } from "@hq/shared";
+import { ALL_SPELL_ELEMENTS, GEAR_CATALOG, ITEM_CATALOG, HERO_SPELL_ACCESS, SPELLS, rollCombatDice, countHitsForHeroAttack, countBlocksForHeroDefense } from "@hq/shared";
+import type { EquipSlot } from "@hq/shared";
 import type { SpellElement } from "@hq/shared";
 import { joinSession, onDiceRoll, onStateUpdate, sendCommand } from "../socket";
 import StatAdjuster from "../components/StatAdjuster";
@@ -28,8 +29,8 @@ const ELEMENT_LABELS: Record<string, string> = {
   water: "Water",
 };
 
-// Gear items without consumables (for the equipment dropdown)
-const EQUIP_GEAR = GEAR_CATALOG.filter((g) => g.category !== "consumable");
+// Equipable items (have a slot) and consumables
+const EQUIP_GEAR = ITEM_CATALOG.filter((g) => g.equipSlot !== undefined);
 const CONSUMABLE_GEAR = GEAR_CATALOG.filter((g) => g.category === "consumable");
 
 export default function PlayerSheet() {
@@ -145,8 +146,9 @@ export default function PlayerSheet() {
 
   function rollDice(rollType: "attack" | "defense") {
     if (!hero) return;
-    const effectiveAttack = hero.attackDice + hero.equipment.reduce((s, e) => s + (e.attackBonus ?? 0), 0);
-    const effectiveDefend = hero.defendDice + hero.equipment.reduce((s, e) => s + (e.defendBonus ?? 0), 0);
+    const equippedItems = Object.values(hero.equipped ?? {}).map((e) => ITEM_CATALOG.find((i) => i.id === e.itemId));
+    const effectiveAttack = hero.attackDice + equippedItems.reduce((s, e) => s + (e?.attackDiceBonus ?? 0), 0);
+    const effectiveDefend = hero.defendDice + equippedItems.reduce((s, e) => s + (e?.defendDiceBonus ?? 0), 0);
     const diceCount = rollType === "attack" ? effectiveAttack : effectiveDefend;
     const results = rollCombatDice(diceCount);
     sendCommand({ type: "ROLL_DICE", rollType, diceCount, results, rollerName: hero.name });
@@ -155,8 +157,8 @@ export default function PlayerSheet() {
   function equipFromCatalog() {
     if (!heroId || !selectedGearId) return;
     const item = EQUIP_GEAR.find((g) => g.id === selectedGearId);
-    if (!item) return;
-    sendCommand({ type: "EQUIP_ITEM", heroId, name: item.name, attackBonus: item.attackBonus, defendBonus: item.defendBonus });
+    if (!item?.equipSlot) return;
+    sendCommand({ type: "EQUIP_ITEM", heroId, itemId: item.id, slot: item.equipSlot as EquipSlot });
   }
 
   function addConsumableFromCatalog() {
@@ -173,8 +175,9 @@ export default function PlayerSheet() {
   const icon = HERO_ICONS[hero.heroTypeId] ?? "🧝";
   const spellAccess = HERO_SPELL_ACCESS[hero.heroTypeId];
 
-  const effectiveAttack = hero.attackDice + hero.equipment.reduce((s, e) => s + (e.attackBonus ?? 0), 0);
-  const effectiveDefend = hero.defendDice + hero.equipment.reduce((s, e) => s + (e.defendBonus ?? 0), 0);
+  const equippedItems = Object.values(hero.equipped ?? {}).map((e) => ITEM_CATALOG.find((i) => i.id === e.itemId));
+  const effectiveAttack = hero.attackDice + equippedItems.reduce((s, e) => s + (e?.attackDiceBonus ?? 0), 0);
+  const effectiveDefend = hero.defendDice + equippedItems.reduce((s, e) => s + (e?.defendDiceBonus ?? 0), 0);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -293,21 +296,21 @@ export default function PlayerSheet() {
 
             <div className="card space-y-3">
               <h2 className="text-sm font-bold text-hq-amber uppercase tracking-wider">Equipment</h2>
-              {hero.equipment.length === 0 ? (
+              {Object.keys(hero.equipped ?? {}).length === 0 ? (
                 <p className="text-parchment/40 text-sm">No equipment</p>
               ) : (
                 <ul className="space-y-2">
-                  {hero.equipment.map((e) => (
-                    <li key={e.id} className="flex items-center gap-2 text-sm">
-                      <span className="text-parchment flex-1">{e.name}</span>
-                      {e.attackBonus && (
-                        <span className="badge bg-hq-red/30 text-hq-red">+{e.attackBonus} ATK</span>
-                      )}
-                      {e.defendBonus && (
-                        <span className="badge bg-blue-900 text-blue-300">+{e.defendBonus} DEF</span>
-                      )}
-                    </li>
-                  ))}
+                  {(Object.entries(hero.equipped ?? {}) as [EquipSlot, { instanceId: string; itemId: string }][]).map(([slot, e]) => {
+                    const def = ITEM_CATALOG.find((i) => i.id === e.itemId);
+                    return (
+                      <li key={slot} className="flex items-center gap-2 text-sm">
+                        <span className="text-parchment/40 w-24 shrink-0 text-xs">{slot}</span>
+                        <span className="text-parchment flex-1">{def?.name ?? e.itemId}</span>
+                        {def?.attackDiceBonus && <span className="badge bg-hq-red/30 text-hq-red">+{def.attackDiceBonus} ATK</span>}
+                        {def?.defendDiceBonus && <span className="badge bg-blue-900 text-blue-300">+{def.defendDiceBonus} DEF</span>}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               {/* Equip from armory */}
@@ -321,7 +324,7 @@ export default function PlayerSheet() {
                   >
                     {EQUIP_GEAR.map((g) => (
                       <option key={g.id} value={g.id}>
-                        {g.name} — {g.description} ({g.goldCost}g)
+                        {g.name} — {g.description} ({g.costGold}g)
                       </option>
                     ))}
                   </select>

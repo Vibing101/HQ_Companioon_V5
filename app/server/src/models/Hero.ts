@@ -3,8 +3,8 @@ import type { Hero } from "@hq/shared";
 
 export interface HeroDoc extends Omit<Hero, "id">, Document {}
 
-const EquipmentSchema = new Schema(
-  { id: String, name: String, attackBonus: Number, defendBonus: Number },
+const EquippedItemSchema = new Schema(
+  { instanceId: String, itemId: String },
   { _id: false }
 );
 
@@ -28,7 +28,12 @@ const HeroSchema = new Schema<HeroDoc>({
   defendDice: { type: Number, required: true },
 
   gold: { type: Number, default: 0 },
-  equipment: [EquipmentSchema],
+  equipped: {
+    weaponMain: { type: EquippedItemSchema },
+    weaponOff:  { type: EquippedItemSchema },
+    armorBody:  { type: EquippedItemSchema },
+    armorHead:  { type: EquippedItemSchema },
+  },
   consumables: [ItemSchema],
   spellsChosenThisQuest: [String],
 

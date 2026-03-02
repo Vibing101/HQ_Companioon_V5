@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { GEAR_CATALOG, QUESTS, MONSTER_TYPES, resolveEffectiveRules, countHitsForHeroAttack, countBlocksForHeroDefense } from "@hq/shared";
-import type { CombatDieFace } from "@hq/shared";
+import { GEAR_CATALOG, ITEM_CATALOG, QUESTS, MONSTER_TYPES, resolveEffectiveRules, countHitsForHeroAttack, countBlocksForHeroDefense } from "@hq/shared";
+import type { CombatDieFace, EquipSlot } from "@hq/shared";
 import type { Campaign, Hero, Session } from "@hq/shared";
 import { joinSession, onDiceRoll, onStateUpdate, sendCommand } from "../socket";
 
-const EQUIP_GEAR = GEAR_CATALOG.filter((g) => g.category !== "consumable");
+const EQUIP_GEAR = ITEM_CATALOG.filter((g) => g.equipSlot !== undefined);
 const CONSUMABLE_GEAR = GEAR_CATALOG.filter((g) => g.category === "consumable");
 import QuestSelector from "../components/QuestSelector";
 import PartyOverview from "../components/PartyOverview";
@@ -43,9 +43,6 @@ export default function GMDashboard() {
   // Hero management state
   const [managedHeroId, setManagedHeroId] = useState<string | null>(null);
   const [goldAmount, setGoldAmount] = useState("");
-  const [newEquipName, setNewEquipName] = useState("");
-  const [newEquipAtk, setNewEquipAtk] = useState("");
-  const [newEquipDef, setNewEquipDef] = useState("");
   const [newConsumName, setNewConsumName] = useState("");
   const [newConsumQty, setNewConsumQty] = useState("1");
   const [newConsumEffect, setNewConsumEffect] = useState("");
@@ -192,22 +189,8 @@ export default function GMDashboard() {
     setGoldAmount("");
   }
 
-  function addEquipment() {
-    if (!managedHeroId || !newEquipName.trim()) return;
-    sendCommand({
-      type: "EQUIP_ITEM",
-      heroId: managedHeroId,
-      name: newEquipName.trim(),
-      attackBonus: newEquipAtk ? Number(newEquipAtk) : undefined,
-      defendBonus: newEquipDef ? Number(newEquipDef) : undefined,
-    });
-    setNewEquipName("");
-    setNewEquipAtk("");
-    setNewEquipDef("");
-  }
-
-  function removeEquipment(heroId: string, equipId: string) {
-    sendCommand({ type: "UNEQUIP_ITEM", heroId, equipId });
+  function removeEquipment(heroId: string, slot: EquipSlot) {
+    sendCommand({ type: "UNEQUIP_ITEM", heroId, slot });
   }
 
   function addConsumable() {
@@ -227,8 +210,8 @@ export default function GMDashboard() {
   function equipFromCatalog() {
     if (!managedHeroId || !gmGearId) return;
     const item = EQUIP_GEAR.find((g) => g.id === gmGearId);
-    if (!item) return;
-    sendCommand({ type: "EQUIP_ITEM", heroId: managedHeroId, name: item.name, attackBonus: item.attackBonus, defendBonus: item.defendBonus });
+    if (!item?.equipSlot) return;
+    sendCommand({ type: "EQUIP_ITEM", heroId: managedHeroId, itemId: item.id, slot: item.equipSlot as EquipSlot });
   }
 
   function addConsumableFromCatalog() {
@@ -396,67 +379,37 @@ export default function GMDashboard() {
                     {/* Equipment */}
                     <div>
                       <p className="text-xs text-parchment/60 mb-2 uppercase tracking-wider">Equipment</p>
-                      {managedHero.equipment.length > 0 && (
+                      {Object.keys(managedHero.equipped ?? {}).length > 0 && (
                         <ul className="space-y-1 mb-3">
-                          {managedHero.equipment.map((e) => (
-                            <li key={e.id} className="flex items-center gap-2 text-sm">
-                              <span className="flex-1 text-parchment">
-                                {e.name}
-                                {e.attackBonus ? <span className="text-hq-red ml-1">+{e.attackBonus}ATK</span> : null}
-                                {e.defendBonus ? <span className="text-blue-400 ml-1">+{e.defendBonus}DEF</span> : null}
-                              </span>
-                              <button
-                                className="text-xs text-hq-red hover:underline"
-                                onClick={() => removeEquipment(managedHero.id, e.id)}
-                              >
-                                Remove
-                              </button>
-                            </li>
-                          ))}
+                          {(Object.entries(managedHero.equipped ?? {}) as [EquipSlot, { instanceId: string; itemId: string }][]).map(([slot, e]) => {
+                            const def = ITEM_CATALOG.find((i) => i.id === e.itemId);
+                            return (
+                              <li key={slot} className="flex items-center gap-2 text-sm">
+                                <span className="text-parchment/40 w-24 shrink-0 text-xs">{slot}</span>
+                                <span className="flex-1 text-parchment">
+                                  {def?.name ?? e.itemId}
+                                  {def?.attackDiceBonus ? <span className="text-hq-red ml-1">+{def.attackDiceBonus}ATK</span> : null}
+                                  {def?.defendDiceBonus ? <span className="text-blue-400 ml-1">+{def.defendDiceBonus}DEF</span> : null}
+                                </span>
+                                <button
+                                  className="text-xs text-hq-red hover:underline"
+                                  onClick={() => removeEquipment(managedHero.id, slot)}
+                                >
+                                  Remove
+                                </button>
+                              </li>
+                            );
+                          })}
                         </ul>
                       )}
-                      <div className="space-y-2">
-                        <input
-                          className="input"
-                          placeholder="Item name"
-                          value={newEquipName}
-                          onChange={(e) => setNewEquipName(e.target.value)}
-                        />
-                        <div className="flex gap-2">
-                          <input
-                            className="input flex-1"
-                            type="number"
-                            placeholder="+ATK bonus"
-                            value={newEquipAtk}
-                            onChange={(e) => setNewEquipAtk(e.target.value)}
-                          />
-                          <input
-                            className="input flex-1"
-                            type="number"
-                            placeholder="+DEF bonus"
-                            value={newEquipDef}
-                            onChange={(e) => setNewEquipDef(e.target.value)}
-                          />
-                        </div>
-                        <button
-                          className="btn-secondary w-full"
-                          onClick={addEquipment}
-                          disabled={!newEquipName.trim()}
-                        >
-                          Add Equipment
-                        </button>
-                      </div>
                       {/* Armory catalog */}
-                      <div className="pt-2 border-t border-parchment/10">
-                        <p className="text-xs text-parchment/50 mb-1">From Armory</p>
-                        <div className="flex gap-2">
-                          <select className="input flex-1 text-sm" value={gmGearId} onChange={(e) => setGmGearId(e.target.value)}>
-                            {EQUIP_GEAR.map((g) => (
-                              <option key={g.id} value={g.id}>{g.name} — {g.description}</option>
-                            ))}
-                          </select>
-                          <button className="btn-secondary text-sm" onClick={equipFromCatalog}>Equip</button>
-                        </div>
+                      <div className="flex gap-2">
+                        <select className="input flex-1 text-sm" value={gmGearId} onChange={(e) => setGmGearId(e.target.value)}>
+                          {EQUIP_GEAR.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name} — {g.description}</option>
+                          ))}
+                        </select>
+                        <button className="btn-secondary text-sm" onClick={equipFromCatalog}>Equip</button>
                       </div>
                     </div>
 

@@ -4,7 +4,7 @@ import { SessionModel } from "../models/Session";
 import { HeroModel } from "../models/Hero";
 import { CampaignModel } from "../models/Campaign";
 import type { SocketCommand, EffectiveRules } from "@hq/shared";
-import { MONSTER_TYPES, QUESTS, GEAR_CATALOG, HERO_SPELL_ACCESS, ALL_SPELL_ELEMENTS, resolveEffectiveRules } from "@hq/shared";
+import { MONSTER_TYPES, QUESTS, GEAR_CATALOG, ITEM_CATALOG, HERO_SPELL_ACCESS, ALL_SPELL_ELEMENTS, resolveEffectiveRules, canEquipItem } from "@hq/shared";
 import type { PackId } from "@hq/shared";
 import { docToJson } from "../utils/docToJson";
 
@@ -337,7 +337,11 @@ async function handleEquipItem(io: Server, socket: Socket, cmd: Extract<SocketCo
     return socket.emit("error", { message: "Only GM can equip items" });
   }
 
-  const { heroId, name, attackBonus, defendBonus } = cmd;
+  const { heroId, itemId, slot } = cmd;
+
+  const item = ITEM_CATALOG.find((i) => i.id === itemId);
+  if (!item) return socket.emit("error", { message: `Unknown item: ${itemId}` });
+
   const hero = await HeroModel.findById(heroId);
   if (!hero) return socket.emit("error", { message: "Hero not found" });
 
@@ -345,7 +349,19 @@ async function handleEquipItem(io: Server, socket: Socket, cmd: Extract<SocketCo
     return socket.emit("error", { message: "Forbidden: hero is not in your campaign" });
   }
 
-  (hero.equipment as any).push({ id: nanoidEquip(), name, attackBonus, defendBonus });
+  const campaign = await CampaignModel.findById(hero.campaignId);
+  if (!campaign) return socket.emit("error", { message: "Campaign not found" });
+
+  const packId = (campaign.enabledPacks[campaign.enabledPacks.length - 1] ?? "BASE") as PackId;
+  const rules = resolveEffectiveRules(packId);
+
+  const heroPlain = docToJson(hero) as import("@hq/shared").Hero;
+  const result = canEquipItem(heroPlain, item, rules);
+  if (!result.ok) return socket.emit("error", { message: result.reason });
+
+  (hero as any).equipped = (hero as any).equipped ?? {};
+  (hero as any).equipped[slot] = { instanceId: nanoidEquip(), itemId };
+  hero.markModified("equipped");
   await hero.save();
 
   io.to(`campaign:${hero.campaignId}`).emit("state_update", { type: "HERO_UPDATED", hero: docToJson(hero) });
@@ -356,7 +372,7 @@ async function handleUnequipItem(io: Server, socket: Socket, cmd: Extract<Socket
     return socket.emit("error", { message: "Only GM can unequip items" });
   }
 
-  const { heroId, equipId } = cmd;
+  const { heroId, slot } = cmd;
   const hero = await HeroModel.findById(heroId);
   if (!hero) return socket.emit("error", { message: "Hero not found" });
 
@@ -364,7 +380,10 @@ async function handleUnequipItem(io: Server, socket: Socket, cmd: Extract<Socket
     return socket.emit("error", { message: "Forbidden: hero is not in your campaign" });
   }
 
-  (hero.equipment as any) = hero.equipment.filter((e: any) => e.id !== equipId);
+  if ((hero as any).equipped) {
+    delete (hero as any).equipped[slot];
+    hero.markModified("equipped");
+  }
   await hero.save();
 
   io.to(`campaign:${hero.campaignId}`).emit("state_update", { type: "HERO_UPDATED", hero: docToJson(hero) });

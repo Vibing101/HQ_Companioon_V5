@@ -146,14 +146,33 @@ export type Session = {
   rulesSnapshot: EffectiveRules;
 };
 
-// ─── Hero ─────────────────────────────────────────────────────────────────────
+// ─── Equipment Model ──────────────────────────────────────────────────────────
 
-export type Equipment = {
+export type EquipSlot = "weaponMain" | "weaponOff" | "armorBody" | "armorHead";
+
+export type ItemCategory = "weapon" | "armor" | "consumable" | "artifact" | "tool";
+
+export type WeaponTag = "oneHanded" | "twoHanded" | "ranged" | "diagonal" | "disguiseLegal";
+
+export type ArmorTag = "helmet" | "shield" | "bodyArmor" | "bracers" | "cloakNotArmor";
+
+export type ItemDefinition = {
   id: string;
   name: string;
-  attackBonus?: number;
-  defendBonus?: number;
+  category: ItemCategory;
+  description?: string;
+  costGold?: number;
+  equipSlot?: EquipSlot;
+  weaponTags?: WeaponTag[];
+  armorTags?: ArmorTag[];
+  attackDiceBonus?: number;
+  defendDiceBonus?: number;
+  mindPointBonus?: number;
 };
+
+export type EquippedItem = { instanceId: string; itemId: string };
+
+// ─── Hero ─────────────────────────────────────────────────────────────────────
 
 export type Item = {
   id: string;
@@ -178,7 +197,7 @@ export type Hero = {
   defendDice: number;
 
   gold: number;
-  equipment: Equipment[];
+  equipped: Partial<Record<EquipSlot, EquippedItem>>;
   consumables: Item[];
   spellsChosenThisQuest: string[];
 
@@ -285,15 +304,14 @@ export type AddGoldCommand = {
 export type EquipItemCommand = {
   type: "EQUIP_ITEM";
   heroId: string;
-  name: string;
-  attackBonus?: number;
-  defendBonus?: number;
+  itemId: string;
+  slot: EquipSlot;
 };
 
 export type UnequipItemCommand = {
   type: "UNEQUIP_ITEM";
   heroId: string;
-  equipId: string;
+  slot: EquipSlot;
 };
 
 export type AddConsumableCommand = {
@@ -574,3 +592,94 @@ export const HERO_SPELL_ACCESS: Partial<Record<HeroTypeId, { elements: SpellElem
 };
 
 export const ALL_SPELL_ELEMENTS: SpellElement[] = ["air", "earth", "fire", "water"];
+
+// ─── Item Catalog (V6 equipment model) ───────────────────────────────────────
+
+export const ITEM_CATALOG: ItemDefinition[] = [
+  // Weapons — slot: weaponMain
+  { id: "short_sword",    name: "Short Sword",        category: "weapon",  equipSlot: "weaponMain", weaponTags: ["oneHanded", "disguiseLegal"], attackDiceBonus: 1, costGold: 150, description: "+1 Attack die" },
+  { id: "hand_axe",       name: "Hand Axe",           category: "weapon",  equipSlot: "weaponMain", weaponTags: ["oneHanded", "disguiseLegal"], attackDiceBonus: 1, costGold: 200, description: "+1 Attack die" },
+  { id: "spear",          name: "Spear",              category: "weapon",  equipSlot: "weaponMain", weaponTags: ["oneHanded", "disguiseLegal"], attackDiceBonus: 1, costGold: 200, description: "+1 Attack die" },
+  { id: "broadsword",     name: "Broadsword",         category: "weapon",  equipSlot: "weaponMain", weaponTags: ["twoHanded"],                  attackDiceBonus: 2, costGold: 350, description: "+2 Attack dice (two-handed)" },
+  { id: "battle_axe",     name: "Battle Axe",         category: "weapon",  equipSlot: "weaponMain", weaponTags: ["twoHanded"],                  attackDiceBonus: 2, costGold: 250, description: "+2 Attack dice (two-handed)" },
+  { id: "crossbow",       name: "Crossbow",           category: "weapon",  equipSlot: "weaponMain", weaponTags: ["ranged", "oneHanded"],        attackDiceBonus: 2, costGold: 300, description: "+2 Attack dice, ranged" },
+  // Off-hand — slot: weaponOff
+  { id: "shield",         name: "Shield",             category: "armor",   equipSlot: "weaponOff",  armorTags: ["shield"],                     defendDiceBonus: 1, costGold: 150, description: "+1 Defense die" },
+  // Head armor — slot: armorHead
+  { id: "helmet",         name: "Helmet",             category: "armor",   equipSlot: "armorHead",  armorTags: ["helmet"],                     defendDiceBonus: 1, costGold: 150, description: "+1 Defense die" },
+  // Body armor — slot: armorBody
+  { id: "chain_mail",     name: "Chain Mail",         category: "armor",   equipSlot: "armorBody",  armorTags: ["bodyArmor"],                  defendDiceBonus: 2, costGold: 300, description: "+2 Defense dice" },
+  { id: "plate_armour",   name: "Plate Armour",       category: "armor",   equipSlot: "armorBody",  armorTags: ["bodyArmor"],                  defendDiceBonus: 3, costGold: 450, description: "+3 Defense dice" },
+  // Artifacts — no equip slot
+  { id: "cloak",          name: "Cloak of Protection", category: "artifact", armorTags: ["cloakNotArmor"],                                     defendDiceBonus: 1, costGold: 200, description: "+1 Defense die (not armor)" },
+  { id: "magic_sword",    name: "Magic Sword",        category: "artifact",                                                                    attackDiceBonus: 2, defendDiceBonus: 1, costGold: 500, description: "+2 Attack, +1 Defense" },
+  { id: "talisman",       name: "Talisman of Lore",   category: "artifact",                                                                    defendDiceBonus: 1, mindPointBonus: 2,  costGold: 200, description: "+1 Defense, +2 Mind Points" },
+  // Consumables — no slot
+  { id: "healing_potion", name: "Healing Potion",     category: "consumable", costGold: 100, description: "Restore 4 Body Points" },
+  { id: "healing_herb",   name: "Healing Herb",       category: "consumable", costGold: 50,  description: "Restore 2 Body Points" },
+  { id: "holy_water",     name: "Holy Water",         category: "consumable", costGold: 75,  description: "Auto-pass next Mind test" },
+];
+
+// ─── Equipment Legality ───────────────────────────────────────────────────────
+
+export function canEquipItem(
+  hero: Hero,
+  item: ItemDefinition,
+  rules: EffectiveRules,
+): { ok: true } | { ok: false; reason: string } {
+  if (!item.equipSlot) {
+    return { ok: false, reason: "Item cannot be equipped in a slot" };
+  }
+  const slot = item.equipSlot;
+
+  // Wizard cannot wear armor or use two-handed (large) weapons
+  if (hero.heroTypeId === "wizard") {
+    if (slot === "armorBody" || slot === "armorHead") {
+      return { ok: false, reason: "Wizard cannot wear armor" };
+    }
+    if (item.weaponTags?.includes("twoHanded")) {
+      return { ok: false, reason: "Wizard cannot use large (two-handed) weapons" };
+    }
+  }
+
+  // Two-handed weapon blocks shield in offhand
+  if (slot === "weaponMain" && item.weaponTags?.includes("twoHanded")) {
+    const offHandId = hero.equipped?.weaponOff?.itemId;
+    if (offHandId) {
+      const offItem = ITEM_CATALOG.find((i) => i.id === offHandId);
+      if (offItem?.armorTags?.includes("shield")) {
+        return { ok: false, reason: "Cannot equip a two-handed weapon while a shield is equipped" };
+      }
+    }
+  }
+
+  // Shield blocked by two-handed weapon in main hand
+  if (slot === "weaponOff" && item.armorTags?.includes("shield")) {
+    const mainHandId = hero.equipped?.weaponMain?.itemId;
+    if (mainHandId) {
+      const mainItem = ITEM_CATALOG.find((i) => i.id === mainHandId);
+      if (mainItem?.weaponTags?.includes("twoHanded")) {
+        return { ok: false, reason: "Cannot equip a shield with a two-handed weapon" };
+      }
+    }
+  }
+
+  // Disguise restrictions (Dread Moon)
+  if (hero.statusFlags.isDisguised && rules.enabledSystems.disguises) {
+    if (slot === "weaponMain" || slot === "weaponOff") {
+      if (!item.weaponTags?.includes("disguiseLegal")) {
+        return { ok: false, reason: "Cannot equip this weapon while disguised" };
+      }
+    }
+    if (slot === "armorBody") {
+      return { ok: false, reason: "Cannot wear body armor while disguised" };
+    }
+    if (slot === "armorHead") {
+      if (!item.armorTags?.includes("helmet") && !item.armorTags?.includes("bracers")) {
+        return { ok: false, reason: "Can only wear a helmet or bracers while disguised" };
+      }
+    }
+  }
+
+  return { ok: true };
+}
