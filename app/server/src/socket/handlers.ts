@@ -194,7 +194,9 @@ async function handleAdjustPoints(io: Server, socket: Socket, cmd: Extract<Socke
       hero.statusFlags.isDead = hero.bodyPointsCurrent === 0;
     } else {
       hero.mindPointsCurrent = Math.max(0, Math.min(hero.mindPointsMax, hero.mindPointsCurrent + delta));
-      hero.statusFlags.isInShock = hero.mindPointsCurrent === 0;
+      const rules = await getSessionRules(hero.campaignId, socket.data.sessionId as string | undefined);
+      const mindShockEnabled = !!rules?.enabledSystems.mindShock;
+      hero.statusFlags.isInShock = mindShockEnabled && hero.mindPointsCurrent === 0;
     }
     await hero.save();
 
@@ -1010,7 +1012,23 @@ async function handleUseHideoutRest(io: Server, socket: Socket, cmd: Extract<Soc
   if (socket.data.role !== "gm" && hero.playerId !== socket.data.playerId) {
     return socket.emit("error", { message: "Not authorized" });
   }
-  if (hero.hideoutRestUsedThisQuest) {
+
+  const socketSessionId = socket.data.sessionId as string | undefined;
+  const campaign = await CampaignModel.findById(hero.campaignId);
+  const activeSessionId = socketSessionId ?? campaign?.currentSessionId;
+  if (!activeSessionId) {
+    return socket.emit("error", { message: "Hideout rest requires an active session" });
+  }
+
+  const session = await SessionModel.findById(activeSessionId);
+  if (!session || session.campaignId !== hero.campaignId) {
+    return socket.emit("error", { message: "Active session not found for this campaign" });
+  }
+  if (ensureSessionStateShape(session)) await session.save();
+
+  const restFlagKey = `hideoutRestUsedByHero:${hero.id}`;
+  const alreadyUsedInSession = session.sessionFlags?.[restFlagKey] === true;
+  if (hero.hideoutRestUsedThisQuest || alreadyUsedInSession) {
     return socket.emit("error", { message: "Hideout rest already used for this hero in this quest" });
   }
 
@@ -1022,9 +1040,16 @@ async function handleUseHideoutRest(io: Server, socket: Socket, cmd: Extract<Soc
   hero.mindPointsCurrent += mpGain;
   hero.hideoutRestUsedThisQuest = true;
   hero.statusFlags.isDead = false;
-  hero.statusFlags.isInShock = hero.mindPointsCurrent === 0;
+  hero.statusFlags.isInShock = !!rules.enabledSystems.mindShock && hero.mindPointsCurrent === 0;
+
+  session.sessionFlags = session.sessionFlags ?? {};
+  session.sessionFlags[restFlagKey] = true;
+  session.markModified("sessionFlags");
+
+  await session.save();
   await hero.save();
   io.to(`campaign:${hero.campaignId}`).emit("state_update", { type: "HERO_UPDATED", hero: docToJson(hero) });
+  io.to(`session:${session.id}`).emit("state_update", { type: "SESSION_UPDATED", session: docToJson(session) });
 }
 
 async function handleSetQuestStatus(io: Server, socket: Socket, cmd: Extract<SocketCommand, { type: "SET_QUEST_STATUS" }>) {
